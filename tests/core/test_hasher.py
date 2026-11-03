@@ -1,9 +1,6 @@
-import ctypes
 import hashlib
 import threading
 from collections import Counter
-from contextlib import contextmanager
-from ctypes import wintypes
 from pathlib import Path
 
 import pytest
@@ -13,34 +10,12 @@ from duplicate_finder.core.duplicate_grouper import build_groups
 from duplicate_finder.core.hasher import sha256_file, verify_groups
 from duplicate_finder.core.models import CandidateStatus
 from duplicate_finder.core.scanner import scan_folder
+from tests.winhelpers import exclusive_lock, write
 
 CONFIRMED = CandidateStatus.CONFIRMED
 DIFFERENT_CONTENT = CandidateStatus.DIFFERENT_CONTENT
 PENDING = CandidateStatus.PENDING_HASH
 READ_ERROR = CandidateStatus.READ_ERROR
-
-_kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-_kernel32.CreateFileW.restype = wintypes.HANDLE
-_kernel32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
-                                  wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
-_kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-_INVALID_HANDLE = wintypes.HANDLE(-1).value
-
-
-@contextmanager
-def exclusive_lock(path: Path):
-    handle = _kernel32.CreateFileW(str(path), 0x80000000, 0, None, 3, 0x80, None)
-    if handle == _INVALID_HANDLE:
-        raise ctypes.WinError(ctypes.get_last_error())
-    try:
-        yield
-    finally:
-        _kernel32.CloseHandle(handle)
-
-
-def write(path: Path, data: bytes) -> Path:
-    path.write_bytes(data)
-    return path
 
 
 def groups_for(folder: Path):

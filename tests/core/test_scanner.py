@@ -1,7 +1,5 @@
-import ctypes
 import os
 import stat
-import subprocess
 import threading
 from pathlib import Path
 
@@ -17,27 +15,11 @@ from duplicate_finder.core.scanner import (
     validate_folder,
 )
 from duplicate_finder.core.winpath import to_os_path
+from tests.winhelpers import add_attributes, make_junction, write
 
 HIDDEN = stat.FILE_ATTRIBUTE_HIDDEN
 SYSTEM = stat.FILE_ATTRIBUTE_SYSTEM
 REPARSE = stat.FILE_ATTRIBUTE_REPARSE_POINT
-
-
-def write(path: Path, data: bytes = b"data") -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data)
-    return path
-
-
-def add_attributes(path: Path, attributes: int) -> None:
-    current = os.stat(path).st_file_attributes
-    if not ctypes.windll.kernel32.SetFileAttributesW(str(path), current | attributes):
-        raise ctypes.WinError()
-
-
-def make_junction(link: Path, target: Path) -> None:
-    subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)],
-                   check=True, capture_output=True)
 
 
 def names(items) -> list[str]:
