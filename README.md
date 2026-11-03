@@ -35,6 +35,16 @@ or:
 python -m duplicate_finder
 ```
 
+## Dry run (console)
+
+Analyze a folder and print what would be moved, without touching anything:
+
+```powershell
+python -m duplicate_finder --dry-run "C:\path\to\folder"
+```
+
+Options: `--show-skipped` lists ignored files and the reason, `--bytes` shows exact sizes. The console never moves files; a folder without `--dry-run` is refused.
+
 ## Run the tests
 
 ```powershell
