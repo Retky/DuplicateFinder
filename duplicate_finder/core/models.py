@@ -120,6 +120,36 @@ class DuplicateGroup:
         return sum(c.entry.size for c in self.confirmed)
 
 
+class MoveOutcome(StrEnum):
+    MOVED = "moved"
+    SKIPPED_EXISTS = "skipped_exists"
+    SKIPPED_CHANGED = "skipped_changed"
+    SKIPPED_ORIGINAL_MISSING = "skipped_original_missing"
+    CANCELLED = "cancelled"
+    ERROR = "error"
+
+
+@dataclass(frozen=True, slots=True)
+class PlannedMove:
+    """A confirmed copy scheduled to move to ``dest_path``, keeping exactly the same name."""
+
+    group_id: str
+    original: FileEntry
+    candidate: Candidate
+    dest_path: Path
+
+    def __post_init__(self) -> None:
+        source = self.candidate.entry.path
+        if not is_movable(self.candidate):
+            raise ValueError(f"only confirmed candidates can be planned: {source}")
+        if not self.dest_path.is_absolute():
+            raise ValueError(f"dest_path must be absolute: {self.dest_path}")
+        if self.dest_path.name != self.candidate.entry.name:
+            raise ValueError(f"files are never renamed: {self.candidate.entry.name!r} -> {self.dest_path.name!r}")
+        if self.dest_path.parent == source.parent:
+            raise ValueError(f"dest_path must be in another folder: {self.dest_path}")
+
+
 @dataclass(frozen=True, slots=True)
 class SkippedEntry:
     path: Path

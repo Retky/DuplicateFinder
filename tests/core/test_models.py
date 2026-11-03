@@ -9,7 +9,9 @@ from duplicate_finder.core.models import (
     CandidateStatus,
     DuplicateGroup,
     FileEntry,
+    MoveOutcome,
     ParsedName,
+    PlannedMove,
     ScanResult,
     SkippedEntry,
     SkipReason,
@@ -164,5 +166,44 @@ def test_scan_result_collections_must_be_tuples(tmp_path):
 
 def test_enums_serialize_as_plain_strings(tmp_path):
     skipped = SkippedEntry(path=tmp_path / "desktop.ini", name="desktop.ini", reason=SkipReason.SYSTEM_NAME)
-    payload = json.dumps({"status": CandidateStatus.CONFIRMED, "reason": skipped.reason})
-    assert json.loads(payload) == {"status": "confirmed", "reason": "system_name"}
+    payload = json.dumps({"status": CandidateStatus.CONFIRMED, "reason": skipped.reason,
+                          "outcome": MoveOutcome.SKIPPED_EXISTS})
+    assert json.loads(payload) == {"status": "confirmed", "reason": "system_name", "outcome": "skipped_exists"}
+
+
+def make_planned(folder: Path, status: CandidateStatus = CandidateStatus.CONFIRMED,
+                 dest: Path | None = None) -> PlannedMove:
+    sha256 = HASH_A if status is CandidateStatus.CONFIRMED else None
+    candidate = make_candidate(folder, "Foto (1).jpg", status, sha256)
+    return PlannedMove(
+        group_id="g0001",
+        original=make_entry(folder, "Foto.jpg"),
+        candidate=candidate,
+        dest_path=dest if dest is not None else folder / "dups" / "Foto (1).jpg",
+    )
+
+
+def test_planned_move_accepts_confirmed_same_name(tmp_path):
+    move = make_planned(tmp_path)
+    assert move.dest_path.name == move.candidate.entry.name
+
+
+@pytest.mark.parametrize("status", [s for s in CandidateStatus if s is not CandidateStatus.CONFIRMED])
+def test_planned_move_rejects_non_confirmed(tmp_path, status):
+    with pytest.raises(ValueError):
+        make_planned(tmp_path, status)
+
+
+def test_planned_move_rejects_rename(tmp_path):
+    with pytest.raises(ValueError, match="never renamed"):
+        make_planned(tmp_path, dest=tmp_path / "dups" / "Foto (1) (2).jpg")
+
+
+def test_planned_move_rejects_same_folder(tmp_path):
+    with pytest.raises(ValueError):
+        make_planned(tmp_path, dest=tmp_path / "Foto (1).jpg")
+
+
+def test_planned_move_rejects_relative_destination(tmp_path):
+    with pytest.raises(ValueError):
+        make_planned(tmp_path, dest=Path("dups") / "Foto (1).jpg")
