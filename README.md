@@ -23,7 +23,7 @@ python -m pip install -r requirements-dev.txt
 
 ## Run the application
 
-With the virtual environment activated:
+With the virtual environment activated, this opens the desktop window:
 
 ```powershell
 python main.py
@@ -34,6 +34,8 @@ or:
 ```powershell
 python -m duplicate_finder
 ```
+
+With no arguments the window opens. Any arguments stay on the console, including `--version` and `--dry-run`.
 
 ## Dry run (console)
 
