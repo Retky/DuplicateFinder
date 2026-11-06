@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from duplicate_finder import __version__
-from duplicate_finder.core.models import MoveOutcome, PlannedMove
+from duplicate_finder.core.models import MoveOutcome, PlannedFolderMove, PlannedMove
 from duplicate_finder.core.winpath import to_os_path
 
 _MAX_NAME_ATTEMPTS = 1000
@@ -27,6 +27,8 @@ class OperationLogger:
         self._clock = clock
         self._planned: dict[Path, PlannedMove] = {}
         self._results: dict[Path, MoveOutcome] = {}
+        self._planned_folders: dict[Path, PlannedFolderMove] = {}
+        self._folder_results: dict[Path, MoveOutcome] = {}
         self._started = False
         self._finished = False
         self._closed = False
@@ -75,11 +77,13 @@ class OperationLogger:
         dest_folder: Path,
         enabled_patterns: frozenset[str],
         planned: Sequence[PlannedMove],
+        folders: Sequence[PlannedFolderMove] = (),
     ) -> None:
         if self._started:
             raise RuntimeError("start() can only be called once")
         sources = [move.candidate.entry.path for move in planned]
-        if len(set(sources)) != len(sources):
+        folder_sources = [move.source for move in folders]
+        if len(set(sources)) != len(sources) or len(set(folder_sources)) != len(folder_sources):
             raise ValueError("planned moves contain the same source twice")
 
         self._write("run_start", {
@@ -87,7 +91,7 @@ class OperationLogger:
             "folder": str(folder),
             "dest_folder": str(dest_folder),
             "enabled_patterns": sorted(enabled_patterns),
-            "planned_count": len(planned),
+            "planned_count": len(planned) + len(folders),
             "planned_bytes": sum(move.candidate.entry.size for move in planned),
         })
         self._started = True
@@ -104,6 +108,16 @@ class OperationLogger:
                 "sha256": move.candidate.sha256,
             })
             self._planned[entry.path] = move
+        for move in folders:
+            self._write("planned", {
+                "group_id": str(move.original),
+                "original_path": str(move.original),
+                "source_path": str(move.source),
+                "dest_path": str(move.dest_path),
+                "file_name": move.source.name,
+                "kind": "folder",
+            })
+            self._planned_folders[move.source] = move
 
     def result(self, move: PlannedMove, outcome: MoveOutcome, error: str | None = None) -> None:
         if not self._started:
@@ -131,6 +145,34 @@ class OperationLogger:
             fields["error"] = error
         self._write("result", fields)
         self._results[source] = outcome
+
+    def folder_result(self, move: PlannedFolderMove, outcome: MoveOutcome, error: str | None = None) -> None:
+        """Record the one result for a folder move. File totals do not include it."""
+        if not self._started:
+            raise RuntimeError("result() called before start()")
+        source = move.source
+        if self._planned_folders.get(source) != move:
+            raise ValueError(f"move was not planned: {source}")
+        if source in self._folder_results:
+            raise ValueError(f"result already recorded for {source}")
+        if outcome is MoveOutcome.ERROR and not error:
+            raise ValueError("an error outcome requires an error message")
+        if outcome is MoveOutcome.MOVED and error:
+            raise ValueError("a moved outcome cannot carry an error message")
+
+        fields: dict[str, Any] = {
+            "group_id": str(move.original),
+            "original_path": str(move.original),
+            "source_path": str(source),
+            "dest_path": str(move.dest_path),
+            "file_name": source.name,
+            "kind": "folder",
+            "outcome": outcome.value,
+        }
+        if error:
+            fields["error"] = error
+        self._write("result", fields)
+        self._folder_results[source] = outcome
 
     def finish(self, cancelled: bool) -> dict[str, Any]:
         """Write run_end and return its fields. Safe to call even if some moves have no result."""

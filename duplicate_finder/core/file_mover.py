@@ -1,4 +1,4 @@
-"""Moves confirmed, selected copies into ``dups/01_Name`` without ever overwriting or renaming."""
+"""Moves confirmed copies and selected duplicate folders without ever overwriting or renaming."""
 
 import os
 import stat
@@ -9,12 +9,14 @@ from datetime import datetime
 from pathlib import Path
 
 from duplicate_finder.core.analysis import AnalysisResult
+from duplicate_finder.core.folder_groups import FolderGroup
 from duplicate_finder.core.models import (
     Candidate,
     DuplicateGroup,
     FileEntry,
     GroupKind,
     MoveOutcome,
+    PlannedFolderMove,
     PlannedMove,
     is_movable,
 )
@@ -25,6 +27,7 @@ from duplicate_finder.core.winpath import to_os_path
 DEST_FOLDER_NAME = "dups"
 NAME_FOLDER_NAME = "01_Name"
 CONTENT_FOLDER_NAME = "02_Content"
+FOLDER_FOLDER_NAME = "03_Folders"
 LOGS_FOLDER_NAME = "_logs"
 
 ProgressCallback = Callable[[int, int], None]
@@ -42,11 +45,21 @@ class MoveResult:
 
 
 @dataclass(frozen=True, slots=True)
+class FolderMoveResult:
+    """One logged result for a folder rename."""
+
+    move: PlannedFolderMove
+    outcome: MoveOutcome
+    detail: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class MoveReport:
     dest_folder: Path
     log_path: Path | None
     results: tuple[MoveResult, ...]
     cancelled: bool
+    folder_results: tuple[FolderMoveResult, ...] = ()
 
     @property
     def totals(self) -> dict[str, int]:
@@ -159,6 +172,11 @@ def content_destination(folder: Path) -> Path:
     return folder / DEST_FOLDER_NAME / CONTENT_FOLDER_NAME
 
 
+def folder_destination(folder: Path) -> Path:
+    """Folder for a selected duplicate directory. It is not created here."""
+    return folder / DEST_FOLDER_NAME / FOLDER_FOLDER_NAME
+
+
 def _prepare_directory(dest: Path) -> None:
     os_dest = to_os_path(dest)
     try:
@@ -212,6 +230,95 @@ def _record(logger: OperationLogger, move: PlannedMove, outcome: MoveOutcome, de
     return MoveResult(move, outcome, detail)
 
 
+def _record_folder(
+    logger: OperationLogger,
+    move: PlannedFolderMove,
+    outcome: MoveOutcome,
+    detail: str | None,
+) -> FolderMoveResult:
+    logger.folder_result(move, outcome, detail)
+    return FolderMoveResult(move, outcome, detail)
+
+
+def _is_inside(path: Path, folder: Path) -> bool:
+    return path != folder and path.is_relative_to(folder)
+
+
+def _build_folder_plan(
+    analysis: AnalysisResult,
+    folders: Sequence[Path],
+    groups: Sequence[FolderGroup],
+    dest_folder: Path,
+) -> list[PlannedFolderMove]:
+    originals = {group.original for group in groups}
+    duplicates = {duplicate: group.original for group in groups for duplicate in group.duplicates}
+    seen: set[Path] = set()
+    plan: list[PlannedFolderMove] = []
+    for source in folders:
+        if source in seen:
+            raise ValueError(f"folder selected twice: {source}")
+        seen.add(source)
+        if source in originals:
+            raise ValueError(f"the original folder cannot be moved: {source}")
+        original = duplicates.get(source)
+        if original is None:
+            raise ValueError(f"folder is not a duplicate in this analysis: {source}")
+        if source == analysis.folder or not source.is_relative_to(analysis.folder):
+            raise ValueError(f"folder is outside the analyzed folder: {source}")
+        plan.append(PlannedFolderMove(original, source, dest_folder / source.name))
+    for path in seen:
+        if any(path != other and path.is_relative_to(other) for other in seen):
+            raise ValueError(f"folder is inside another selected folder: {path}")
+    return plan
+
+
+def _without_folder_files(selected: Sequence[Candidate], folders: Sequence[Path]) -> list[Candidate]:
+    return [
+        candidate for candidate in selected
+        if not any(_is_inside(candidate.entry.path, folder) for folder in folders)
+    ]
+
+
+def _without_folder_content(content: Sequence[ContentMove], folders: Sequence[Path]) -> list[ContentMove]:
+    kept: list[ContentMove] = []
+    for move in content:
+        selected = tuple(
+            candidate for candidate in move.selected
+            if not any(_is_inside(candidate.entry.path, folder) for folder in folders)
+        )
+        if selected:
+            kept.append(ContentMove(move.group_id, move.keeper, selected))
+    return kept
+
+
+def _attempt_folder(move: PlannedFolderMove) -> tuple[MoveOutcome, str | None]:
+    try:
+        current = os.lstat(to_os_path(move.original))
+    except FileNotFoundError:
+        return MoveOutcome.SKIPPED_ORIGINAL_MISSING, "original no longer exists"
+    except OSError as exc:
+        return MoveOutcome.ERROR, _error_text(exc)
+    if not stat.S_ISDIR(current.st_mode):
+        return MoveOutcome.SKIPPED_ORIGINAL_MISSING, "original no longer exists"
+
+    try:
+        current = os.lstat(to_os_path(move.source))
+    except FileNotFoundError:
+        return MoveOutcome.SKIPPED_CHANGED, "folder no longer exists"
+    except OSError as exc:
+        return MoveOutcome.ERROR, _error_text(exc)
+    if not stat.S_ISDIR(current.st_mode):
+        return MoveOutcome.SKIPPED_CHANGED, "folder no longer exists"
+
+    try:
+        os.rename(to_os_path(move.source), to_os_path(move.dest_path))
+    except FileExistsError:
+        return MoveOutcome.SKIPPED_EXISTS, "a folder with the same name is already in the destination"
+    except OSError as exc:
+        return MoveOutcome.ERROR, _error_text(exc)
+    return MoveOutcome.MOVED, None
+
+
 def move_duplicates(
     analysis: AnalysisResult,
     selected: Sequence[Candidate],
@@ -220,25 +327,37 @@ def move_duplicates(
     clock: Callable[[], datetime] = _now,
     *,
     content: Sequence[ContentMove] = (),
+    folders: Sequence[Path] = (),
+    folder_groups: Sequence[FolderGroup] = (),
 ) -> MoveReport:
-    """Move selected name copies into ``01_Name`` and an explicit content selection into ``02_Content``.
+    """Move selected copies and selected duplicate folders.
 
-    Every planned file gets exactly one logged result, including when the run is
-    cancelled or fails unexpectedly. ``02_Content`` is created only for a content plan.
+    The file plan and the folder plan are validated before any destination is
+    created. A file inside a selected folder is left out of the file plan.
+    ``02_Content`` is created only for a content plan, and ``03_Folders`` only
+    for a folder plan. Every planned file and folder gets one logged result.
     """
     dups = analysis.folder / DEST_FOLDER_NAME
     name_folder = dups / NAME_FOLDER_NAME
     content_folder = dups / CONTENT_FOLDER_NAME
-    name_plan = _build_plan(analysis, selected, name_folder)
-    content_plan = _build_content_plan(analysis, content, content_folder)
+    folders_folder = dups / FOLDER_FOLDER_NAME
+    folder_plan = _build_folder_plan(analysis, folders, folder_groups, folders_folder)
+    selected_folders = [move.source for move in folder_plan]
+    name_plan = _build_plan(analysis, _without_folder_files(selected, selected_folders), name_folder)
+    content_plan = _build_content_plan(
+        analysis, _without_folder_content(content, selected_folders), content_folder,
+    )
     plan = name_plan + content_plan
-    if name_plan and content_plan:
+    destinations = [name_plan, content_plan, folder_plan]
+    if sum(bool(item) for item in destinations) > 1:
         report_dest = dups
+    elif folder_plan:
+        report_dest = folders_folder
     elif content_plan:
         report_dest = content_folder
     else:
         report_dest = name_folder
-    if not plan:
+    if not plan and not folder_plan:
         return MoveReport(report_dest, None, (), False)
 
     folder = validate_folder(analysis.folder)
@@ -249,38 +368,63 @@ def move_duplicates(
         _prepare_directory(name_folder)
     if content_plan:
         _prepare_directory(content_folder)
+    if folder_plan:
+        _prepare_directory(folders_folder)
 
     logger = OperationLogger.create(dups / LOGS_FOLDER_NAME, clock)
     results: list[MoveResult] = []
+    folder_results: list[FolderMoveResult] = []
     resolved: set[Path] = set()
+    resolved_folders: set[Path] = set()
     cancelled = False
     aborted: BaseException | None = None
-    total = len(plan)
+    work: list[tuple[str, PlannedMove | PlannedFolderMove]] = [
+        *([("folder", move) for move in folder_plan]),
+        *([("file", move) for move in plan]),
+    ]
+    total = len(work)
     try:
-        logger.start(folder, report_dest, analysis.enabled, plan)
-        for done, move in enumerate(plan, start=1):
+        logger.start(folder, report_dest, analysis.enabled, plan, folder_plan)
+        for done, (kind, move) in enumerate(work, start=1):
             if cancel is not None and cancel.is_set():
                 cancelled = True
-                for remaining_done, remaining in enumerate(plan[done - 1:], start=done):
-                    results.append(_record(logger, remaining, MoveOutcome.CANCELLED, None))
-                    resolved.add(remaining.candidate.entry.path)
+                rest = work[done - 1:]
+                for remaining_done, (remaining_kind, remaining) in enumerate(rest, start=done):
+                    _record_cancelled(
+                        logger, remaining_kind, remaining, results, folder_results, resolved, resolved_folders,
+                    )
                     if on_progress is not None:
                         on_progress(remaining_done, total)
                 break
 
-            outcome, detail = _attempt(move)
-            results.append(_record(logger, move, outcome, detail))
-            resolved.add(move.candidate.entry.path)
+            if kind == "folder":
+                assert isinstance(move, PlannedFolderMove)
+                outcome, detail = _attempt_folder(move)
+                folder_results.append(_record_folder(logger, move, outcome, detail))
+                resolved_folders.add(move.source)
+            else:
+                assert isinstance(move, PlannedMove)
+                outcome, detail = _attempt(move)
+                results.append(_record(logger, move, outcome, detail))
+                resolved.add(move.candidate.entry.path)
             if on_progress is not None:
                 on_progress(done, total)
     except Exception as exc:
         aborted = exc
     finally:
+        detail = f"aborted: {aborted}" if aborted is not None else "aborted"
+        for move in folder_plan:
+            if move.source in resolved_folders:
+                continue
+            try:
+                folder_results.append(_record_folder(logger, move, MoveOutcome.ERROR, detail))
+            except Exception:
+                pass
+            resolved_folders.add(move.source)
         for move in plan:
             source = move.candidate.entry.path
             if source in resolved:
                 continue
-            detail = f"aborted: {aborted}" if aborted is not None else "aborted"
             try:
                 results.append(_record(logger, move, MoveOutcome.ERROR, detail))
             except Exception:
@@ -293,4 +437,23 @@ def move_duplicates(
 
     if aborted is not None:
         raise aborted
-    return MoveReport(report_dest, logger.path, tuple(results), cancelled)
+    return MoveReport(report_dest, logger.path, tuple(results), cancelled, tuple(folder_results))
+
+
+def _record_cancelled(
+    logger: OperationLogger,
+    kind: str,
+    move: PlannedMove | PlannedFolderMove,
+    results: list[MoveResult],
+    folder_results: list[FolderMoveResult],
+    resolved: set[Path],
+    resolved_folders: set[Path],
+) -> None:
+    if kind == "folder":
+        assert isinstance(move, PlannedFolderMove)
+        folder_results.append(_record_folder(logger, move, MoveOutcome.CANCELLED, None))
+        resolved_folders.add(move.source)
+        return
+    assert isinstance(move, PlannedMove)
+    results.append(_record(logger, move, MoveOutcome.CANCELLED, None))
+    resolved.add(move.candidate.entry.path)

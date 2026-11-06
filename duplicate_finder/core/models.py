@@ -169,6 +169,24 @@ class PlannedMove:
 
 
 @dataclass(frozen=True, slots=True)
+class PlannedFolderMove:
+    """A duplicate folder scheduled to move to ``dest_path``, keeping exactly the same name."""
+
+    original: Path
+    source: Path
+    dest_path: Path
+
+    def __post_init__(self) -> None:
+        for label, path in (("original", self.original), ("source", self.source), ("dest_path", self.dest_path)):
+            if not path.is_absolute():
+                raise ValueError(f"{label} must be absolute: {path}")
+        if self.dest_path.name != self.source.name:
+            raise ValueError(f"folders are never renamed: {self.source.name!r} -> {self.dest_path.name!r}")
+        if self.dest_path.parent == self.source.parent:
+            raise ValueError(f"dest_path must be in another folder: {self.dest_path}")
+
+
+@dataclass(frozen=True, slots=True)
 class SkippedEntry:
     path: Path
     name: str
