@@ -5,7 +5,7 @@ import pytest
 
 from duplicate_finder.core.analysis import Phase, analyze
 from duplicate_finder.core.filename_parser import ALL_PATTERNS
-from duplicate_finder.core.models import CandidateStatus
+from duplicate_finder.core.models import CandidateStatus, GroupKind
 from duplicate_finder.core.scanner import FolderValidationError, ScanCancelled
 
 
@@ -59,10 +59,14 @@ def test_enabled_patterns_are_passed_through(tmp_path):
 
     result = analyze(tmp_path, enabled=ALL_PATTERNS - {"paren_num"})
 
-    names = set(statuses(result))
+    names = {candidate.entry.name for group in result.groups if group.kind is GroupKind.NAME
+             for candidate in group.candidates}
     assert "Photo (1).jpg" not in names
     assert "Lonely (1).png" not in names
     assert "Photo - copia.jpg" in names
+    content = {candidate.entry.name for group in result.groups if group.kind is GroupKind.CONTENT
+               for candidate in group.candidates}
+    assert "Photo (1).jpg" in content
     assert result.enabled == ALL_PATTERNS - {"paren_num"}
 
 

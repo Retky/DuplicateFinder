@@ -30,7 +30,9 @@ PATTERNS: tuple[SuffixPattern, ...] = (
     _pattern("spaced_dash_num", r"(?P<base>.+) - [1-9][0-9]?", "Photo - 1.jpg"),
     _pattern("paren_num", r"(?P<base>.+) \([1-9][0-9]?\)", "Photo (1).jpg"),
     _pattern("paren_num_nospace", r"(?P<base>.*\S)\([1-9][0-9]?\)", "Photo(1).jpg"),
+    _pattern("paren_num_open", r"(?P<base>.*\S)\([1-9][0-9]?", "Photo(1.jpg"),
     _pattern("bracket_num", r"(?P<base>.+) \[[1-9][0-9]?\]", "Photo [1].jpg"),
+    _pattern("bracket_num_open", r"(?P<base>.*\S)\[[1-9][0-9]?", "Photo[1.jpg"),
     _pattern("dash_num", r"(?P<base>.*\S)-[1-9][0-9]?", "Photo-1.jpg"),
 )
 

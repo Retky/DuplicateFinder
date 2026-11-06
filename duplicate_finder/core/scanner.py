@@ -64,6 +64,13 @@ def classify(name: str, is_dir: bool, attributes: int, size: int) -> SkipReason 
     return None
 
 
+def _created_ns(st: object) -> int | None:
+    value = getattr(st, "st_birthtime_ns", None)
+    if isinstance(value, int):
+        return value
+    return None
+
+
 def _stat_entry(entry: os.DirEntry) -> os.stat_result:
     return entry.stat(follow_symlinks=False)
 
@@ -94,7 +101,9 @@ def scan_folder(
         else:
             reason = classify(dir_entry.name, stat.S_ISDIR(st.st_mode), st.st_file_attributes, st.st_size)
             if reason is None:
-                entries.append(FileEntry(path, dir_entry.name, st.st_size, st.st_mtime_ns))
+                entries.append(FileEntry(
+                    path, dir_entry.name, st.st_size, st.st_mtime_ns, _created_ns(st),
+                ))
             else:
                 skipped.append(SkippedEntry(path, dir_entry.name, reason))
 

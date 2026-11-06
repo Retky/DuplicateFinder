@@ -23,6 +23,8 @@ CONFIG_FILE_NAME = "config.json"
 class Config:
     enabled_patterns: frozenset[str]
     last_folder: Path | None
+    match_names: bool = True
+    match_content: bool = True
 
 
 def default_config_dir() -> Path:
@@ -46,6 +48,12 @@ def _read_patterns(value: object) -> frozenset[str]:
     return frozenset(item for item in value if isinstance(item, str) and item in ALL_PATTERNS)
 
 
+def _read_flag(value: object, default: bool = True) -> bool:
+    if isinstance(value, bool):
+        return value
+    return default
+
+
 def _read_folder(value: object) -> Path | None:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -65,6 +73,8 @@ def load_config(directory: Path | None = None) -> Config:
     return Config(
         enabled_patterns=_read_patterns(raw.get("enabled_patterns")),
         last_folder=_read_folder(raw.get("last_folder")),
+        match_names=_read_flag(raw.get("match_names")),
+        match_content=_read_flag(raw.get("match_content")),
     )
 
 
@@ -83,6 +93,8 @@ def save_config(config: Config, directory: Path | None = None) -> Path:
         "version": CONFIG_VERSION,
         "enabled_patterns": sorted(config.enabled_patterns),
         "last_folder": None if config.last_folder is None else str(config.last_folder),
+        "match_names": config.match_names,
+        "match_content": config.match_content,
     }
     try:
         with open(to_os_path(temporary), "w", encoding="utf-8", newline="\n") as handle:

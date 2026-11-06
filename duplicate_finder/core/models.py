@@ -10,12 +10,18 @@ _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 class CandidateStatus(StrEnum):
     CONFIRMED = "confirmed"
+    CONTENT_MATCH = "content_match"
     PENDING_HASH = "pending_hash"
     DIFFERENT_SIZE = "different_size"
     DIFFERENT_CONTENT = "different_content"
     NO_ORIGINAL = "no_original"
     AMBIGUOUS = "ambiguous"
     READ_ERROR = "read_error"
+
+
+class GroupKind(StrEnum):
+    NAME = "name"
+    CONTENT = "content"
 
 
 class SkipReason(StrEnum):
@@ -43,6 +49,7 @@ class FileEntry:
     name: str
     size: int
     mtime_ns: int
+    created_ns: int | None = None
 
     def __post_init__(self) -> None:
         if not self.path.is_absolute():
@@ -80,13 +87,20 @@ class Candidate:
 
     def __post_init__(self) -> None:
         _check_sha256(self.sha256, "sha256")
-        if self.status is CandidateStatus.CONFIRMED and self.sha256 is None:
-            raise ValueError(f"confirmed candidate without sha256: {self.entry.path}")
+        if self.status in (CandidateStatus.CONFIRMED, CandidateStatus.CONTENT_MATCH) and self.sha256 is None:
+            raise ValueError(f"{self.status.value} candidate without sha256: {self.entry.path}")
 
 
 def is_movable(candidate: Candidate) -> bool:
-    """Single source of truth for whether a candidate may be moved."""
+    """Single source of truth for whether a candidate may be moved without an explicit keeper."""
     return candidate.status is CandidateStatus.CONFIRMED and candidate.sha256 is not None
+
+
+def is_plannable(candidate: Candidate) -> bool:
+    """Confirmed copies, and content matches once a keeper has been chosen by the caller."""
+    if is_movable(candidate):
+        return True
+    return candidate.status is CandidateStatus.CONTENT_MATCH and candidate.sha256 is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,11 +110,14 @@ class DuplicateGroup:
     original: FileEntry | None
     original_sha256: str | None
     candidates: tuple[Candidate, ...]
+    kind: GroupKind = GroupKind.NAME
 
     def __post_init__(self) -> None:
         _check_tuple(self.candidates, "candidates")
         _check_sha256(self.original_sha256, "original_sha256")
         for candidate in self.candidates:
+            if candidate.status is CandidateStatus.CONTENT_MATCH and self.kind is not GroupKind.CONTENT:
+                raise ValueError(f"group {self.group_id} has a content match but is a name group")
             if candidate.status is not CandidateStatus.CONFIRMED:
                 continue
             if self.original is None or self.original_sha256 is None:
@@ -140,7 +157,7 @@ class PlannedMove:
 
     def __post_init__(self) -> None:
         source = self.candidate.entry.path
-        if not is_movable(self.candidate):
+        if not is_plannable(self.candidate):
             raise ValueError(f"only confirmed candidates can be planned: {source}")
         if not self.dest_path.is_absolute():
             raise ValueError(f"dest_path must be absolute: {self.dest_path}")

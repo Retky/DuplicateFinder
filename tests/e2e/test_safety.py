@@ -60,11 +60,18 @@ def _is_directory(path: Path) -> bool:
 
 
 def snapshot(folder: Path) -> tuple[Item, ...]:
-    """Files directly in ``folder`` and in ``folder/dups``. The operation log is not part of the data."""
+    """Files in the source folder, loose files in ``dups``, and files in the destination subfolders.
+
+    The operation log is not part of the data.
+    """
     items = _files(folder, "source")
     dups = folder / "dups"
     if _is_directory(dups):
         items.extend(_files(dups, "dups"))
+        for name in ("01_Name", "02_Content"):
+            nested = dups / name
+            if _is_directory(nested):
+                items.extend(_files(nested, "dups"))
     return tuple(items)
 
 
@@ -214,20 +221,20 @@ def test_existing_dups_folder_keeps_its_files(tmp_path):
 
     assert moved_names(report) == {"Photo (1).jpg"}
     assert (folder / "dups" / "keep.txt").read_bytes() == b"keep-me"
-    assert (folder / "dups" / "Photo (1).jpg").read_bytes() == SAME
+    assert (folder / "dups" / "01_Name" / "Photo (1).jpg").read_bytes() == SAME
 
 
 def test_name_already_in_dups_is_left_alone(tmp_path):
     folder = tmp_path / "library"
     build_folder(folder, {"Photo.jpg": SAME, "Photo (1).jpg": SAME})
-    build_folder(folder / "dups", {"Photo (1).jpg": b"already-there"})
+    build_folder(folder / "dups" / "01_Name", {"Photo (1).jpg": b"already-there"})
 
     _analysis, report = exercise(folder, tmp_path)
 
     assert report is not None
     assert outcomes(report) == {"Photo (1).jpg": MoveOutcome.SKIPPED_EXISTS}
     assert (folder / "Photo (1).jpg").read_bytes() == SAME
-    assert (folder / "dups" / "Photo (1).jpg").read_bytes() == b"already-there"
+    assert (folder / "dups" / "01_Name" / "Photo (1).jpg").read_bytes() == b"already-there"
 
 
 def test_locked_copy_is_reported_and_the_run_continues(tmp_path):
@@ -239,7 +246,7 @@ def test_locked_copy_is_reported_and_the_run_continues(tmp_path):
     assert report is not None
     assert outcomes(report) == {"Photo (1).jpg": MoveOutcome.ERROR, "Photo (2).jpg": MoveOutcome.MOVED}
     assert (folder / "Photo (1).jpg").read_bytes() == SAME
-    assert (folder / "dups" / "Photo (2).jpg").read_bytes() == SAME
+    assert (folder / "dups" / "01_Name" / "Photo (2).jpg").read_bytes() == SAME
 
 
 def test_ignored_files_stay_put(tmp_path):
@@ -332,7 +339,7 @@ def test_long_path_loses_nothing(tmp_path):
     copy = folder / "Photo (1).jpg"
     if moved_names(report):
         assert moved_names(report) == {"Photo (1).jpg"}
-        assert os.path.exists(to_os_path(folder / "dups" / "Photo (1).jpg"))
+        assert os.path.exists(to_os_path(folder / "dups" / "01_Name" / "Photo (1).jpg"))
     else:
         assert outcomes(report) == {"Photo (1).jpg": MoveOutcome.ERROR}
         assert os.path.exists(to_os_path(copy))
@@ -352,7 +359,7 @@ def test_second_run_moves_nothing_new(tmp_path):
     assert second_report.results == ()
     assert second_report.log_path is None
     assert (folder / "Photo.jpg").read_bytes() == SAME
-    assert (folder / "dups" / "Photo (1).jpg").read_bytes() == SAME
+    assert (folder / "dups" / "01_Name" / "Photo (1).jpg").read_bytes() == SAME
 
 
 def test_nfc_and_nfd_originals_move_nothing(tmp_path):

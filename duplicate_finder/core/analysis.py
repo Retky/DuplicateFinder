@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from duplicate_finder.core.content_grouper import build_content_groups
 from duplicate_finder.core.duplicate_grouper import build_groups
 from duplicate_finder.core.filename_parser import ALL_PATTERNS
 from duplicate_finder.core.hasher import verify_groups
@@ -50,11 +51,15 @@ def analyze(
     enabled: frozenset[str] = ALL_PATTERNS,
     on_progress: PhaseProgressCallback | None = None,
     cancel: threading.Event | None = None,
+    *,
+    match_names: bool = True,
+    match_content: bool = True,
 ) -> AnalysisResult:
     """Analyze a folder without modifying anything.
 
     FolderValidationError and ScanCancelled propagate. A cancelled verification
     returns a result with ``cancelled=True`` where unverified copies stay PENDING_HASH.
+    Content groups are omitted when content hashing is cancelled.
     """
 
     def report(phase: Phase) -> Callable[[int, int], None] | None:
@@ -63,11 +68,18 @@ def analyze(
         return lambda done, total: on_progress(phase, done, total)
 
     scan = scan_folder(folder, on_progress=report(Phase.SCAN), cancel=cancel)
-    groups = build_groups(scan.entries, enabled)
-    verified = verify_groups(groups, on_progress=report(Phase.VERIFY), cancel=cancel)
+    name_groups = build_groups(scan.entries, enabled) if match_names else []
+    verified = verify_groups(name_groups, on_progress=report(Phase.VERIFY), cancel=cancel)
+    cancelled = cancel is not None and cancel.is_set()
+    content: list[DuplicateGroup] = []
+    if match_content and not cancelled:
+        content, content_cancelled = build_content_groups(
+            scan.entries, verified, on_progress=report(Phase.VERIFY), cancel=cancel,
+        )
+        cancelled = cancelled or content_cancelled
     return AnalysisResult(
         scan=scan,
-        groups=tuple(verified),
+        groups=tuple(verified) + tuple(content),
         enabled=enabled,
-        cancelled=cancel is not None and cancel.is_set(),
+        cancelled=cancelled,
     )

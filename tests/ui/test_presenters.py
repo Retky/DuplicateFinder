@@ -46,7 +46,7 @@ def parsed(name: str, suffixes: tuple[str, ...] = ()) -> ParsedName:
 
 def candidate(name: str, status: CandidateStatus, size: int = 100, sha: str | None = None,
               error: str | None = None) -> Candidate:
-    if status is CandidateStatus.CONFIRMED and sha is None:
+    if status in (CandidateStatus.CONFIRMED, CandidateStatus.CONTENT_MATCH) and sha is None:
         sha = HASH_A
     return Candidate(entry(name, size), parsed(name, ("paren_num",)), status, sha, error)
 
@@ -114,7 +114,7 @@ def test_confirm_text_names_the_destination():
     text = confirm_text(FOLDER, [group], {group.candidates[0].entry.path})
     assert "1 file(s) from 1 group(s)" in text
     assert "100 B" in text
-    assert str(FOLDER / "dups") in text
+    assert str(FOLDER / "dups" / "01_Name") in text
 
 
 def test_group_titles():
