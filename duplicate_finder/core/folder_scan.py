@@ -7,6 +7,7 @@ and the walk does not enter ``dups`` or a link.
 import os
 import stat
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,11 +42,18 @@ def scan_folder_trees(
     excluded_extensions: frozenset[str] = frozenset(),
     match_subfolders: bool = False,
     cancel: threading.Event | None = None,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> tuple[FolderTree, ...]:
     """Return one tree per candidate. Nested files are recorded even when nested folders are not candidates."""
     folder = validate_folder(folder)
     candidates = _candidates(folder, match_subfolders, cancel)
-    return tuple(_collect(candidate, excluded_extensions, cancel) for candidate in candidates)
+    trees: list[FolderTree] = []
+    total = len(candidates)
+    for index, candidate in enumerate(candidates, start=1):
+        trees.append(_collect(candidate, excluded_extensions, cancel))
+        if on_progress is not None and total:
+            on_progress(index, total)
+    return tuple(trees)
 
 
 def _candidates(folder: Path, match_subfolders: bool, cancel: threading.Event | None) -> list[Path]:

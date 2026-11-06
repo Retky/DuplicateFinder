@@ -433,6 +433,8 @@ def move_duplicates(
     total = len(work)
     try:
         logger.start(folder, report_dest, analysis.enabled, plan, folder_plan)
+        if on_progress is not None and total:
+            on_progress(0, total)
         for done, (kind, move) in enumerate(work, start=1):
             if cancel is not None and cancel.is_set():
                 cancelled = True

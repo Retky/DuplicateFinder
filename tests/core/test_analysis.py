@@ -78,9 +78,10 @@ def test_progress_reports_both_phases(tmp_path):
 
     analyze(tmp_path, on_progress=lambda phase, done, total: calls[phase].append((done, total)))
 
-    for phase in Phase:
-        assert calls[phase], phase
-        done, total = calls[phase][-1]
+    assert set(calls) == {Phase.SCAN, Phase.VERIFY}
+    for phase, items in calls.items():
+        assert items, phase
+        done, total = items[-1]
         assert done == total
 
 
@@ -128,6 +129,22 @@ def test_folder_matching_stays_off_until_requested(tmp_path):
     assert on.folder_groups[0].original.name == "Album"
     assert [path.name for path in on.folder_groups[0].duplicates] == ["Album (1)"]
     assert on.folders_hidden is False
+
+
+def test_folder_comparison_moves_progress_off_the_completed_scan(tmp_path):
+    write(tmp_path / "Album" / "photo.jpg", b"photo")
+    write(tmp_path / "Album (1)" / "photo.jpg", b"photo")
+    calls: list[tuple[int, int]] = []
+
+    analyze(
+        tmp_path,
+        match_folders=True,
+        on_progress=lambda phase, done, total: calls.append((done, total)) if phase is Phase.FOLDERS else None,
+    )
+
+    assert calls[0] == (0, 1)
+    assert calls[-1][0] == calls[-1][1]
+    assert any(done < total for done, total in calls)
 
 
 def test_hidden_folder_file_sets_the_warning_flag_and_desktop_ini_does_not(tmp_path):

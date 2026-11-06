@@ -19,6 +19,7 @@ from duplicate_finder.core.scanner import scan_folder
 class Phase(StrEnum):
     SCAN = "scan"
     VERIFY = "verify"
+    FOLDERS = "folders"
 
 
 PhaseProgressCallback = Callable[[Phase, int, int], None]
@@ -91,17 +92,21 @@ def analyze(
     folder_groups: tuple[FolderGroup, ...] = ()
     folders_hidden = False
     if match_folders and not cancelled:
+        folder_report = report(Phase.FOLDERS)
+        if folder_report is not None:
+            folder_report(0, 1)
         trees = scan_folder_trees(
             scan.folder,
             excluded_extensions=excluded_extensions,
             match_subfolders=match_subfolders,
             cancel=cancel,
+            on_progress=folder_report,
         )
         folders_hidden = any(tree.hidden_included for tree in trees)
         if cancel is not None and cancel.is_set():
             cancelled = True
         else:
-            folder_groups = group_folder_sets(trees, cancel)
+            folder_groups = group_folder_sets(trees, cancel, on_progress=folder_report)
             if cancel is not None and cancel.is_set():
                 folder_groups = ()
                 cancelled = True

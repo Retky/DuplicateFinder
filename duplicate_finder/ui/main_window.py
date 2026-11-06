@@ -50,7 +50,7 @@ class MainWindow(ttk.Frame):
         self.settings = SettingsPanel(self, config, self._mark_stale, config_directory)
         self.settings.pack(fill="x", pady=8)
 
-        self.progress = ttk.Progressbar(self, mode="determinate")
+        self.progress = ttk.Progressbar(self, mode="determinate", maximum=1000)
         self.progress.pack(fill="x")
         ttk.Label(self, textvariable=self.status_var).pack(anchor="w", pady=(2, 6))
 
@@ -147,7 +147,7 @@ class MainWindow(ttk.Frame):
         self.operation = operation
         self.busy = True
         self._apply_busy_state()
-        self.progress.configure(value=0, maximum=1)
+        self._show_progress(0, 1)
         enabled = self.settings.enabled()
         match_names = self.settings.match_names()
         match_content = self.settings.match_content()
@@ -187,6 +187,19 @@ class MainWindow(ttk.Frame):
 
         self.worker.start(task)
 
+    def _show_progress(self, done: int, total: int) -> None:
+        """Show ``done/total`` on a 0–1000 range so a finished bar does not stay full."""
+        total = total if total else 1
+        done = min(max(done, 0), total)
+        span = 1000
+        value = span if done >= total else (done * span) // total
+        current = int(float(self.progress["value"]))
+        maximum = int(float(self.progress["maximum"]))
+        if maximum != span or value < current:
+            self.progress.configure(value=0)
+            self.progress.configure(maximum=span)
+        self.progress.configure(value=value)
+
     def _poll(self) -> None:
         try:
             if not self.root.winfo_exists():
@@ -196,8 +209,7 @@ class MainWindow(ttk.Frame):
         for message in self.worker.drain():
             if isinstance(message, Progress):
                 self.status_var.set(message.text)
-                maximum = message.total if message.total else 1
-                self.progress.configure(maximum=maximum, value=min(message.done, maximum))
+                self._show_progress(message.done, message.total)
             elif isinstance(message, Succeeded):
                 self._on_success(message.value)
             elif isinstance(message, Failed):

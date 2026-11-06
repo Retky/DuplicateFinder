@@ -209,6 +209,8 @@ def _recorded_name_lines(records: Sequence[NameRecord]) -> list[str]:
 def analyze_progress_text(phase: Phase, done: int, total: int) -> str:
     if phase is Phase.SCAN:
         return f"Scanning... {done} of {total}"
+    if phase is Phase.FOLDERS:
+        return f"Comparing folders... {done} of {total}"
     percent = done * 100 // total if total else 100
     return f"Verifying... {percent}%"
 

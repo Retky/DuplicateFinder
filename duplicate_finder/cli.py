@@ -105,6 +105,8 @@ def _progress_printer(stream: TextIO) -> Callable[[Phase, int, int], None] | Non
     def show(phase: Phase, done: int, total: int) -> None:
         if phase is Phase.SCAN:
             text = f"Scanning... {done}/{total}"
+        elif phase is Phase.FOLDERS:
+            text = f"Comparing folders... {done}/{total}"
         else:
             percent = done * 100 // total if total else 100
             text = f"Verifying... {percent}% ({format_size(done)} of {format_size(total)})"

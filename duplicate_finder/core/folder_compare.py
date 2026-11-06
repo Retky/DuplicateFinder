@@ -7,7 +7,7 @@ does not move anything.
 import os
 import threading
 from collections import Counter, defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -63,9 +63,12 @@ def compare_folder_sets(
     trees: Sequence[FolderTree],
     known_digests: Mapping[Path, str] | None = None,
     cancel: threading.Event | None = None,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> tuple[FolderRelation, ...]:
     """Return every equal or subset pair. A cancelled hash returns no relations."""
-    identities = _identities(trees, {} if known_digests is None else known_digests, cancel)
+    identities = _identities(
+        trees, {} if known_digests is None else known_digests, cancel, on_progress,
+    )
     if identities is None:
         return ()
     nodes = [(_tree_node(tree, identities), tree) for tree in trees]
@@ -86,37 +89,43 @@ def _identities(
     trees: Sequence[FolderTree],
     known_digests: Mapping[Path, str],
     cancel: threading.Event | None,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> dict[Path, Identity] | None:
     files = [item for tree in trees for item in tree.files]
     sizes = Counter(item.entry.size for item in files)
     identities: dict[Path, Identity] = {}
-    for item in files:
+    total = len(files)
+    for index, item in enumerate(files, start=1):
         if cancel is not None and cancel.is_set():
             return None
         entry = item.entry
         extension = os.path.splitext(entry.name)[1].casefold()
         if sizes[entry.size] == 1:
             identities[entry.path] = ("unique", extension, entry.size)
-            continue
-        digest = known_digests.get(entry.path)
-        if digest is None:
-            try:
-                read = 0
+        else:
+            digest = known_digests.get(entry.path)
+            if digest is None:
+                try:
+                    read = 0
 
-                def on_bytes(count: int) -> None:
-                    nonlocal read
-                    read += count
+                    def on_bytes(count: int) -> None:
+                        nonlocal read
+                        read += count
 
-                digest = sha256_file(entry.path, cancel, on_bytes)
-            except HashCancelled:
-                return None
-            except OSError:
-                identities[entry.path] = ("unread", entry.path)
-                continue
-            if read != entry.size:
-                identities[entry.path] = ("unread", entry.path)
-                continue
-        identities[entry.path] = ("hash", extension, digest)
+                    digest = sha256_file(entry.path, cancel, on_bytes)
+                except HashCancelled:
+                    return None
+                except OSError:
+                    identities[entry.path] = ("unread", entry.path)
+                    digest = None
+                else:
+                    if read != entry.size:
+                        identities[entry.path] = ("unread", entry.path)
+                        digest = None
+            if digest is not None:
+                identities[entry.path] = ("hash", extension, digest)
+        if on_progress is not None and total:
+            on_progress(index, total)
     return identities
 
 
@@ -187,13 +196,16 @@ def equal_correspondence(
     right: FolderTree,
     known_digests: Mapping[Path, str] | None = None,
     cancel: threading.Event | None = None,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> tuple[tuple[PairedFile, PairedFile], ...] | None:
     """Return one file pairing when the trees are equal.
 
     Several child pairings can fit. The one kept is the pairing whose paired
     relative paths sort first in case-folded order. Anything else returns None.
     """
-    identities = _identities((left, right), {} if known_digests is None else known_digests, cancel)
+    identities = _identities(
+        (left, right), {} if known_digests is None else known_digests, cancel, on_progress,
+    )
     if identities is None:
         return None
     return _equal_pairs(_directory(left, identities), _directory(right, identities))

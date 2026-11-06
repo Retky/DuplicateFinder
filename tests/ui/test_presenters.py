@@ -172,4 +172,5 @@ def test_move_report_lists_recorded_names_per_kept_folder(tmp_path):
 def test_progress_text():
     assert analyze_progress_text(Phase.SCAN, 2, 10) == "Scanning... 2 of 10"
     assert analyze_progress_text(Phase.VERIFY, 50, 200) == "Verifying... 25%"
+    assert analyze_progress_text(Phase.FOLDERS, 1, 4) == "Comparing folders... 1 of 4"
     assert move_progress_text(1, 4) == "Moving... 1 of 4"

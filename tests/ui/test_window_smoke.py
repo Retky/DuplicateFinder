@@ -15,6 +15,7 @@ from duplicate_finder.core.models import (
     ScanResult,
 )
 from duplicate_finder.ui.main_window import MainWindow
+from duplicate_finder.ui.worker import Progress
 
 HASH = "a" * 64
 
@@ -62,5 +63,25 @@ def test_window_shows_results_and_toggles_the_confirmed_row(tmp_path):
         assert window.move_button.instate(["disabled"])
         assert window.results.row_for(tmp_path / "Photo (2).jpg") is not None
         assert window.results.tree.set(window.results.row_for(tmp_path / "Photo (2).jpg"), "mark") == ""
+    finally:
+        root.destroy()
+
+
+def test_move_progress_fills_part_of_the_bar(tmp_path):
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("no display available")
+    root.withdraw()
+    try:
+        window = MainWindow(root, Config(ALL_PATTERNS, None), config_directory=tmp_path)
+        window.progress.configure(maximum=1000, value=1000)
+        window.worker.messages.put(Progress("Moving... 1 of 4", 1, 4))
+        window._poll()
+        root.update_idletasks()
+
+        assert window.status_var.get() == "Moving... 1 of 4"
+        assert int(float(window.progress["maximum"])) == 1000
+        assert int(float(window.progress["value"])) == 250
     finally:
         root.destroy()

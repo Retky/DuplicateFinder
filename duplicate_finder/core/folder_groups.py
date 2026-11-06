@@ -6,7 +6,7 @@ This does not move anything.
 
 import threading
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,6 +32,7 @@ class FolderGroup:
 def group_folder_sets(
     trees: Sequence[FolderTree],
     cancel: threading.Event | None = None,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> tuple[FolderGroup, ...]:
     """Group subset relations so each group has one original and at least one duplicate.
 
@@ -40,10 +41,10 @@ def group_folder_sets(
     if not trees or (cancel is not None and cancel.is_set()):
         return ()
     by_path = {tree.path: tree for tree in trees}
-    relations = compare_folder_sets(trees, cancel=cancel)
+    relations = compare_folder_sets(trees, cancel=cancel, on_progress=on_progress)
     if cancel is not None and cancel.is_set():
         return ()
-    groups = _groups_from_relations(tuple(by_path), by_path, relations, cancel)
+    groups = _groups_from_relations(tuple(by_path), by_path, relations, cancel, on_progress)
     if cancel is not None and cancel.is_set():
         return ()
     return tuple(_without_nested(groups))
@@ -54,6 +55,7 @@ def _groups_from_relations(
     trees: dict[Path, FolderTree],
     relations: tuple[FolderRelation, ...],
     cancel: threading.Event | None = None,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> tuple[FolderGroup, ...]:
     contains: dict[Path, set[Path]] = defaultdict(set)
     parent = {path: path for path in paths}
@@ -86,7 +88,7 @@ def _groups_from_relations(
 
     groups: list[FolderGroup] = []
     for members in classes.values():
-        original = _original_of(members, trees, common, cancel)
+        original = _original_of(members, trees, common, cancel, on_progress)
         duplicates = [path for path in members if path != original]
         for path in members:
             duplicates.extend(attached[path])
@@ -106,11 +108,12 @@ def _original_of(
     trees: dict[Path, FolderTree],
     common: Path,
     cancel: threading.Event | None,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> Path:
     ordered = _ordered(members, common)
     winner = ordered[0]
     for other in ordered[1:]:
-        winner = _prefer_equal(winner, other, trees, common, cancel)
+        winner = _prefer_equal(winner, other, trees, common, cancel, on_progress)
     return winner
 
 
@@ -120,12 +123,13 @@ def _prefer_equal(
     trees: dict[Path, FolderTree],
     common: Path,
     cancel: threading.Event | None,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> Path:
     left_copy = parse_name(left.name).is_copy
     right_copy = parse_name(right.name).is_copy
     if left_copy != right_copy:
         return right if left_copy else left
-    later = _later_equal(trees[left], trees[right], cancel)
+    later = _later_equal(trees[left], trees[right], cancel, on_progress)
     if later is not None:
         return later
     return _ordered((left, right), common)[0]
@@ -135,8 +139,13 @@ def _prefer_container(options: list[Path], common: Path) -> Path:
     return min(options, key=lambda path: (parse_name(path.name).is_copy, _order_key(path, common)))
 
 
-def _later_equal(left: FolderTree, right: FolderTree, cancel: threading.Event | None) -> Path | None:
-    pairs = equal_correspondence(left, right, cancel=cancel)
+def _later_equal(
+    left: FolderTree,
+    right: FolderTree,
+    cancel: threading.Event | None,
+    on_progress: Callable[[int, int], None] | None = None,
+) -> Path | None:
+    pairs = equal_correspondence(left, right, cancel=cancel, on_progress=on_progress)
     if not pairs:
         return None
     first_left, first_right = min(pairs, key=_file_key)
