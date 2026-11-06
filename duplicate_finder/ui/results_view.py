@@ -10,9 +10,12 @@ from tkinter import messagebox, ttk
 
 from duplicate_finder.core.content_grouper import choose_keeper
 from duplicate_finder.core.file_mover import ContentMove
+from duplicate_finder.core.folder_groups import FolderGroup
 from duplicate_finder.core.models import Candidate, CandidateStatus, DuplicateGroup, FileEntry, GroupKind, is_movable
 from duplicate_finder.formatting import format_size
 from duplicate_finder.ui.presenters import (
+    MARK_OFF,
+    MARK_ON,
     can_toggle,
     content_status,
     format_timestamp,
@@ -27,6 +30,7 @@ _NAME = "Confirmed by name"
 _CONTENT = "Confirmed by content"
 _PENDING = "Pending review"
 _FILTERS = (_ALL, _NAME, _CONTENT, _PENDING)
+HIDDEN_FOLDER_WARNING = "Hidden files were found and included in folder matching."
 
 
 class ResultsView(ttk.Frame):
@@ -34,9 +38,13 @@ class ResultsView(ttk.Frame):
         super().__init__(master)
         self._on_selection_changed = on_selection_changed
         self.selected: set[Path] = set()
+        self.selected_folders: set[Path] = set()
         self._keepers: dict[str, Path] = {}
         self._groups: tuple[DuplicateGroup, ...] = ()
+        self._folder_groups: tuple[FolderGroup, ...] = ()
         self._candidates: dict[str, Candidate] = {}
+        self._folder_rows: dict[str, Path] = {}
+        self._visible_folders: set[Path] = set()
         self._paths: dict[str, Path] = {}
 
         toolbar = ttk.Frame(self)
@@ -49,6 +57,7 @@ class ResultsView(ttk.Frame):
         ttk.Button(toolbar, text="Select visible", command=self.select_visible).pack(side="left", padx=(8, 0))
         ttk.Button(toolbar, text="Clear visible", command=self.clear_visible).pack(side="left", padx=(4, 0))
 
+        self.warning = tk.Label(self, text="", fg="red", anchor="w")
         self.tree = ttk.Treeview(
             self, columns=("mark", "name", "size", "modified", "created", "status", "hash"), show="tree headings",
         )
@@ -84,10 +93,23 @@ class ResultsView(ttk.Frame):
         self._menu.add_command(label="Keep this file", command=self._keep_menu_target)
         self._menu_path: Path | None = None
 
-    def show(self, groups: tuple[DuplicateGroup, ...]) -> None:
+    def show(
+        self,
+        groups: tuple[DuplicateGroup, ...],
+        folder_groups: tuple[FolderGroup, ...] = (),
+        folders_hidden: bool = False,
+    ) -> None:
         self._groups = groups
+        self._folder_groups = folder_groups
         self._keepers.clear()
         self.selected = {candidate.entry.path for group in groups for candidate in group.confirmed}
+        self.selected_folders = set()
+        if folders_hidden:
+            self.warning.configure(text=HIDDEN_FOLDER_WARNING)
+            self.warning.pack(fill="x", before=self.tree)
+        else:
+            self.warning.configure(text="")
+            self.warning.pack_forget()
         self._rebuild()
 
     def keep(self, path: Path) -> None:
@@ -118,12 +140,14 @@ class ResultsView(ttk.Frame):
             group = self._group_for(candidate.entry.path)
             if group is not None and can_toggle(candidate, **self._toggle_flags(group, candidate)):
                 self.selected.add(candidate.entry.path)
+        self.selected_folders.update(self._visible_folders)
         self._rebuild()
         self._on_selection_changed()
 
     def clear_visible(self) -> None:
         for path in self.visible_paths():
             self.selected.discard(path)
+        self.selected_folders.difference_update(self._visible_folders)
         self._rebuild()
         self._on_selection_changed()
 
@@ -137,7 +161,9 @@ class ResultsView(ttk.Frame):
 
     def hidden_tick_count(self) -> int:
         visible = self.visible_paths()
-        return sum(1 for path in self.selected if path not in visible)
+        files = sum(1 for path in self.selected if path not in visible)
+        folders = sum(1 for path in self.selected_folders if path not in self._visible_folders)
+        return files + folders
 
     def selected_candidates(self) -> list[Candidate]:
         visible = self.visible_paths()
@@ -167,10 +193,28 @@ class ResultsView(ttk.Frame):
                 moves.append(ContentMove(group.group_id, keeper, selected))
         return moves
 
+    def selected_folder_paths(self) -> list[Path]:
+        """Ticked duplicate folders that are visible in the current filter."""
+        return [
+            path for group in self._folder_groups for path in group.duplicates
+            if path in self.selected_folders and path in self._visible_folders
+        ]
+
     def has_move_selection(self) -> bool:
-        return bool(self.selected_candidates() or self.content_moves())
+        return bool(self.selected_candidates() or self.content_moves() or self.selected_folder_paths())
 
     def toggle(self, row_id: str) -> None:
+        folder = self._folder_rows.get(row_id)
+        if folder is not None:
+            if folder not in self._visible_folders:
+                return
+            if folder in self.selected_folders:
+                self.selected_folders.remove(folder)
+            else:
+                self.selected_folders.add(folder)
+            self.tree.set(row_id, "mark", MARK_ON if folder in self.selected_folders else MARK_OFF)
+            self._on_selection_changed()
+            return
         candidate = self._candidates.get(row_id)
         group = self._group_for(candidate.entry.path) if candidate is not None else None
         if candidate is None or group is None or not can_toggle(candidate, **self._toggle_flags(group, candidate)):
@@ -205,6 +249,8 @@ class ResultsView(ttk.Frame):
         if children:
             self.tree.delete(*children)
         self._candidates.clear()
+        self._folder_rows.clear()
+        self._visible_folders.clear()
         self._paths.clear()
         for group in self._groups:
             rows = self._visible(group)
@@ -228,10 +274,42 @@ class ResultsView(ttk.Frame):
                     short_hash(candidate.sha256),
                 ))
             self.tree.item(parent, open=True)
+        if self._filter.get() == _ALL:
+            self._show_folder_groups()
+
+    def _show_folder_groups(self) -> None:
+        for index, group in enumerate(self._folder_groups):
+            parent = self.tree.insert("", "end", iid=f"fgroup-{index}", text=group.original.name, open=True)
+            self._insert_folder(parent, group.original, duplicate=False)
+            for path in group.duplicates:
+                self._insert_folder(parent, path, duplicate=True)
+
+    def _insert_folder(self, parent: str, path: Path, *, duplicate: bool) -> None:
+        row_id = f"folder-{len(self._folder_rows)}"
+        self._folder_rows[row_id] = path
+        self._paths[row_id] = path
+        mark = ""
+        if duplicate:
+            self._visible_folders.add(path)
+            mark = MARK_ON if path in self.selected_folders else MARK_OFF
+        values = (
+            mark,
+            path.name,
+            "",
+            "",
+            "",
+            "Duplicate folder" if duplicate else "Original folder",
+            "",
+        )
+        if duplicate:
+            self.tree.insert(parent, "end", iid=row_id, values=values)
+        else:
+            self.tree.insert(parent, "end", iid=row_id, values=values, tags=("original",))
 
     def _on_click(self, event: tk.Event) -> str | None:
         row_id = self.tree.identify_row(event.y)
-        if self.tree.identify_column(event.x) == "#1" and row_id in self._candidates:
+        marked = row_id in self._candidates or row_id in self._folder_rows
+        if self.tree.identify_column(event.x) == "#1" and marked:
             self.toggle(row_id)
             return "break"
         return None

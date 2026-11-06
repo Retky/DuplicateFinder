@@ -92,18 +92,19 @@ class MainWindow(ttk.Frame):
             return
         selected = self.results.selected_candidates()
         content = self.results.content_moves()
-        if not selected and not content:
+        folders = self.results.selected_folder_paths()
+        if not selected and not content and not folders:
             return
         paths = {candidate.entry.path for candidate in selected}
         paths.update(candidate.entry.path for move in content for candidate in move.selected)
         if not messagebox.askyesno(
             "Move duplicates",
-            confirm_text(self.analysis.folder, self.analysis.groups, paths),
+            confirm_text(self.analysis.folder, self.analysis.groups, paths, folders),
             default="no",
             parent=self.root,
         ):
             return
-        self._start("move", self.analysis, selected, content)
+        self._start("move", self.analysis, selected, content, folders)
 
     def cancel(self) -> None:
         if self.busy:
@@ -133,9 +134,9 @@ class MainWindow(ttk.Frame):
         """Show results directly. Used by the worker callback and by tests."""
         self.analysis = result
         self.stale = False
-        self.results.show(result.groups)
+        self.results.show(result.groups, result.folder_groups, result.folders_hidden)
         self._update_summary()
-        if not result.groups:
+        if not result.groups and not result.folder_groups:
             self.status_var.set("No duplicate candidates found.")
         elif result.cancelled:
             self.status_var.set("Analysis cancelled. Unverified copies were not confirmed.")
@@ -151,6 +152,8 @@ class MainWindow(ttk.Frame):
         match_names = self.settings.match_names()
         match_content = self.settings.match_content()
         excluded_extensions = self.settings.excluded_extensions()
+        match_folders = self.settings.match_folders()
+        match_subfolders = self.settings.match_subfolders()
 
         def task(cancel, report) -> object:
             if operation == "analyze":
@@ -164,15 +167,22 @@ class MainWindow(ttk.Frame):
                     folder, enabled, on_progress=on_progress, cancel=cancel,
                     match_names=match_names, match_content=match_content,
                     excluded_extensions=excluded_extensions,
+                    match_folders=match_folders,
+                    match_subfolders=match_subfolders,
                 )
 
-            analysis, selected, content = args
+            analysis, selected, content, folders = args
+            assert isinstance(analysis, AnalysisResult)
+            assert isinstance(selected, list)
+            assert isinstance(content, list)
+            assert isinstance(folders, list)
 
             def on_move_progress(done, total):
                 report(Progress(move_progress_text(done, total), done, total))
 
             return move_duplicates(
-                analysis, selected, on_progress=on_move_progress, cancel=cancel, content=content,
+                analysis, selected, on_progress=on_move_progress, cancel=cancel,
+                content=content, folders=folders, folder_groups=analysis.folder_groups,
             )
 
         self.worker.start(task)

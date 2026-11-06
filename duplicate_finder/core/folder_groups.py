@@ -4,6 +4,7 @@ A folder is in at most one group, and never as both the original and a duplicate
 This does not move anything.
 """
 
+import threading
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -28,13 +29,23 @@ class FolderGroup:
     duplicates: tuple[Path, ...]
 
 
-def group_folder_sets(trees: Sequence[FolderTree]) -> tuple[FolderGroup, ...]:
-    """Group subset relations so each group has one original and at least one duplicate."""
-    if not trees:
+def group_folder_sets(
+    trees: Sequence[FolderTree],
+    cancel: threading.Event | None = None,
+) -> tuple[FolderGroup, ...]:
+    """Group subset relations so each group has one original and at least one duplicate.
+
+    A cancelled comparison returns no groups.
+    """
+    if not trees or (cancel is not None and cancel.is_set()):
         return ()
     by_path = {tree.path: tree for tree in trees}
-    relations = compare_folder_sets(trees)
-    groups = _groups_from_relations(tuple(by_path), by_path, relations)
+    relations = compare_folder_sets(trees, cancel=cancel)
+    if cancel is not None and cancel.is_set():
+        return ()
+    groups = _groups_from_relations(tuple(by_path), by_path, relations, cancel)
+    if cancel is not None and cancel.is_set():
+        return ()
     return tuple(_without_nested(groups))
 
 
@@ -42,6 +53,7 @@ def _groups_from_relations(
     paths: tuple[Path, ...],
     trees: dict[Path, FolderTree],
     relations: tuple[FolderRelation, ...],
+    cancel: threading.Event | None = None,
 ) -> tuple[FolderGroup, ...]:
     contains: dict[Path, set[Path]] = defaultdict(set)
     parent = {path: path for path in paths}
@@ -74,7 +86,7 @@ def _groups_from_relations(
 
     groups: list[FolderGroup] = []
     for members in classes.values():
-        original = _original_of(members, trees, common)
+        original = _original_of(members, trees, common, cancel)
         duplicates = [path for path in members if path != original]
         for path in members:
             duplicates.extend(attached[path])
@@ -89,20 +101,31 @@ def _smaller_and_larger(relation: FolderRelation) -> tuple[Path, Path]:
     return relation.right, relation.left
 
 
-def _original_of(members: list[Path], trees: dict[Path, FolderTree], common: Path) -> Path:
+def _original_of(
+    members: list[Path],
+    trees: dict[Path, FolderTree],
+    common: Path,
+    cancel: threading.Event | None,
+) -> Path:
     ordered = _ordered(members, common)
     winner = ordered[0]
     for other in ordered[1:]:
-        winner = _prefer_equal(winner, other, trees, common)
+        winner = _prefer_equal(winner, other, trees, common, cancel)
     return winner
 
 
-def _prefer_equal(left: Path, right: Path, trees: dict[Path, FolderTree], common: Path) -> Path:
+def _prefer_equal(
+    left: Path,
+    right: Path,
+    trees: dict[Path, FolderTree],
+    common: Path,
+    cancel: threading.Event | None,
+) -> Path:
     left_copy = parse_name(left.name).is_copy
     right_copy = parse_name(right.name).is_copy
     if left_copy != right_copy:
         return right if left_copy else left
-    later = _later_equal(trees[left], trees[right])
+    later = _later_equal(trees[left], trees[right], cancel)
     if later is not None:
         return later
     return _ordered((left, right), common)[0]
@@ -112,8 +135,8 @@ def _prefer_container(options: list[Path], common: Path) -> Path:
     return min(options, key=lambda path: (parse_name(path.name).is_copy, _order_key(path, common)))
 
 
-def _later_equal(left: FolderTree, right: FolderTree) -> Path | None:
-    pairs = equal_correspondence(left, right)
+def _later_equal(left: FolderTree, right: FolderTree, cancel: threading.Event | None) -> Path | None:
+    pairs = equal_correspondence(left, right, cancel=cancel)
     if not pairs:
         return None
     first_left, first_right = min(pairs, key=_file_key)

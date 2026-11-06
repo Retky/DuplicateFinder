@@ -9,6 +9,8 @@ from pathlib import Path
 from duplicate_finder.core.content_grouper import build_content_groups
 from duplicate_finder.core.duplicate_grouper import build_groups
 from duplicate_finder.core.filename_parser import ALL_PATTERNS
+from duplicate_finder.core.folder_groups import FolderGroup, group_folder_sets
+from duplicate_finder.core.folder_scan import scan_folder_trees
 from duplicate_finder.core.hasher import verify_groups
 from duplicate_finder.core.models import DuplicateGroup, ScanResult
 from duplicate_finder.core.scanner import scan_folder
@@ -28,6 +30,8 @@ class AnalysisResult:
     groups: tuple[DuplicateGroup, ...]
     enabled: frozenset[str]
     cancelled: bool
+    folder_groups: tuple[FolderGroup, ...] = ()
+    folders_hidden: bool = False
 
     @property
     def folder(self) -> Path:
@@ -55,12 +59,16 @@ def analyze(
     match_names: bool = True,
     match_content: bool = True,
     excluded_extensions: frozenset[str] = frozenset(),
+    match_folders: bool = False,
+    match_subfolders: bool = False,
 ) -> AnalysisResult:
     """Analyze a folder without modifying anything.
 
     FolderValidationError and ScanCancelled propagate. A cancelled verification
     returns a result with ``cancelled=True`` where unverified copies stay PENDING_HASH.
-    Content groups are omitted when content hashing is cancelled.
+    Content groups are omitted when content hashing is cancelled. Folder groups are
+    included only when folder matching is on, and a cancelled folder comparison
+    leaves those groups empty.
     """
 
     def report(phase: Phase) -> Callable[[int, int], None] | None:
@@ -80,9 +88,28 @@ def analyze(
             scan.entries, verified, on_progress=report(Phase.VERIFY), cancel=cancel,
         )
         cancelled = cancelled or content_cancelled
+    folder_groups: tuple[FolderGroup, ...] = ()
+    folders_hidden = False
+    if match_folders and not cancelled:
+        trees = scan_folder_trees(
+            scan.folder,
+            excluded_extensions=excluded_extensions,
+            match_subfolders=match_subfolders,
+            cancel=cancel,
+        )
+        folders_hidden = any(tree.hidden_included for tree in trees)
+        if cancel is not None and cancel.is_set():
+            cancelled = True
+        else:
+            folder_groups = group_folder_sets(trees, cancel)
+            if cancel is not None and cancel.is_set():
+                folder_groups = ()
+                cancelled = True
     return AnalysisResult(
         scan=scan,
         groups=tuple(verified) + tuple(content),
         enabled=enabled,
         cancelled=cancelled,
+        folder_groups=folder_groups,
+        folders_hidden=folders_hidden,
     )

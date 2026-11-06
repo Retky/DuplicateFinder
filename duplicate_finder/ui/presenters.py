@@ -1,11 +1,12 @@
 """Pure presentation rules shared by the window. No Tkinter imports."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 from duplicate_finder.core.analysis import Phase
-from duplicate_finder.core.file_mover import MoveReport, content_destination, name_destination
+from duplicate_finder.core.file_mover import MoveReport, content_destination, folder_destination, name_destination
 from duplicate_finder.core.models import Candidate, CandidateStatus, DuplicateGroup, GroupKind, MoveOutcome, is_movable
 from duplicate_finder.formatting import format_size
 
@@ -142,7 +143,7 @@ def summary_text(group_count: int, confirmed_count: int, groups, selected: set[P
     return text
 
 
-def confirm_text(folder: Path, groups, selected: set[Path]) -> str:
+def confirm_text(folder: Path, groups, selected: set[Path], folders: Sequence[Path] = ()) -> str:
     selection = summary(groups, selected)
     name = content = False
     for group in groups:
@@ -154,12 +155,18 @@ def confirm_text(folder: Path, groups, selected: set[Path]) -> str:
             elif candidate.status is CandidateStatus.CONTENT_MATCH:
                 content = True
     destinations = []
-    if name or not content:
+    if name or not (content or folders):
         destinations.append(str(name_destination(folder)))
     if content:
         destinations.append(str(content_destination(folder)))
+    if folders:
+        destinations.append(str(folder_destination(folder)))
+    if folders and selection.file_count == 0:
+        question = f"Move {len(folders)} folder(s)?"
+    else:
+        question = f"Move {selection.file_count} file(s) from {selection.group_count} group(s)?"
     return (
-        f"Move {selection.file_count} file(s) from {selection.group_count} group(s)?\n\n"
+        f"{question}\n\n"
         f"Total size: {format_size(selection.total_bytes)}\n"
         f"Destination: {', '.join(destinations)}"
     )

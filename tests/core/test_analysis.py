@@ -1,3 +1,4 @@
+import stat
 import threading
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from duplicate_finder.core.analysis import Phase, analyze
 from duplicate_finder.core.filename_parser import ALL_PATTERNS
 from duplicate_finder.core.models import CandidateStatus, GroupKind
 from duplicate_finder.core.scanner import FolderValidationError, ScanCancelled
+from tests.winhelpers import add_attributes, write
 
 
 def build_scenario(folder: Path) -> None:
@@ -111,3 +113,32 @@ def test_pre_cancelled_scan_raises(tmp_path):
 def test_invalid_folder_raises(tmp_path):
     with pytest.raises(FolderValidationError):
         analyze(tmp_path / "missing")
+
+
+def test_folder_matching_stays_off_until_requested(tmp_path):
+    write(tmp_path / "Album" / "photo.jpg", b"photo")
+    write(tmp_path / "Album (1)" / "photo.jpg", b"photo")
+
+    off = analyze(tmp_path)
+    assert off.folder_groups == ()
+    assert off.folders_hidden is False
+
+    on = analyze(tmp_path, match_folders=True)
+    assert len(on.folder_groups) == 1
+    assert on.folder_groups[0].original.name == "Album"
+    assert [path.name for path in on.folder_groups[0].duplicates] == ["Album (1)"]
+    assert on.folders_hidden is False
+
+
+def test_hidden_folder_file_sets_the_warning_flag_and_desktop_ini_does_not(tmp_path):
+    write(tmp_path / "Album" / "photo.jpg", b"photo")
+    write(tmp_path / "Album" / "desktop.ini", b"ini")
+    write(tmp_path / "Album (1)" / "photo.jpg", b"photo")
+
+    metadata = analyze(tmp_path, match_folders=True)
+    assert metadata.folders_hidden is False
+
+    hidden = write(tmp_path / "Album" / "secret.jpg", b"secret")
+    add_attributes(hidden, stat.FILE_ATTRIBUTE_HIDDEN)
+    included = analyze(tmp_path, match_folders=True)
+    assert included.folders_hidden is True
