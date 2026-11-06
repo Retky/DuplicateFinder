@@ -29,6 +29,7 @@ NAME_FOLDER_NAME = "01_Name"
 CONTENT_FOLDER_NAME = "02_Content"
 FOLDER_FOLDER_NAME = "03_Folders"
 LOGS_FOLDER_NAME = "_logs"
+OTHER_NAMES_FILE = "other-names.txt"
 
 ProgressCallback = Callable[[int, int], None]
 
@@ -54,12 +55,23 @@ class FolderMoveResult:
 
 
 @dataclass(frozen=True, slots=True)
+class NameRecord:
+    """One folder name written, or not written, into the kept folder's name file."""
+
+    original: Path
+    path: Path
+    name: str
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class MoveReport:
     dest_folder: Path
     log_path: Path | None
     results: tuple[MoveResult, ...]
     cancelled: bool
     folder_results: tuple[FolderMoveResult, ...] = ()
+    name_records: tuple[NameRecord, ...] = ()
 
     @property
     def totals(self) -> dict[str, int]:
@@ -319,6 +331,39 @@ def _attempt_folder(move: PlannedFolderMove) -> tuple[MoveOutcome, str | None]:
     return MoveOutcome.MOVED, None
 
 
+def _record_folder_name(move: PlannedFolderMove) -> NameRecord:
+    """Append the moved folder's name to the kept folder. A failed write leaves the move done."""
+    path = move.original / OTHER_NAMES_FILE
+    try:
+        _append_name(path, move.source.name)
+    except OSError as exc:
+        return NameRecord(move.original, path, move.source.name, _error_text(exc))
+    return NameRecord(move.original, path, move.source.name)
+
+
+def _append_name(path: Path, name: str) -> None:
+    os_path = to_os_path(path)
+    prefix = _leading_newline(os_path)
+    with open(os_path, "a", encoding="utf-8", newline="\n") as handle:
+        handle.write(f"{prefix}{name}\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _leading_newline(os_path: str) -> str:
+    try:
+        with open(os_path, "rb") as existing:
+            existing.seek(0, os.SEEK_END)
+            if existing.tell() == 0:
+                return ""
+            existing.seek(-1, os.SEEK_END)
+            if existing.read(1) in (b"\n", b"\r"):
+                return ""
+    except FileNotFoundError:
+        return ""
+    return "\n"
+
+
 def move_duplicates(
     analysis: AnalysisResult,
     selected: Sequence[Candidate],
@@ -336,6 +381,8 @@ def move_duplicates(
     created. A file inside a selected folder is left out of the file plan.
     ``02_Content`` is created only for a content plan, and ``03_Folders`` only
     for a folder plan. Every planned file and folder gets one logged result.
+    Each folder that moves has its name appended to ``other-names.txt`` in the
+    kept folder before the next move starts.
     """
     dups = analysis.folder / DEST_FOLDER_NAME
     name_folder = dups / NAME_FOLDER_NAME
@@ -374,6 +421,7 @@ def move_duplicates(
     logger = OperationLogger.create(dups / LOGS_FOLDER_NAME, clock)
     results: list[MoveResult] = []
     folder_results: list[FolderMoveResult] = []
+    name_records: list[NameRecord] = []
     resolved: set[Path] = set()
     resolved_folders: set[Path] = set()
     cancelled = False
@@ -402,6 +450,8 @@ def move_duplicates(
                 outcome, detail = _attempt_folder(move)
                 folder_results.append(_record_folder(logger, move, outcome, detail))
                 resolved_folders.add(move.source)
+                if outcome is MoveOutcome.MOVED:
+                    name_records.append(_record_folder_name(move))
             else:
                 assert isinstance(move, PlannedMove)
                 outcome, detail = _attempt(move)
@@ -437,7 +487,9 @@ def move_duplicates(
 
     if aborted is not None:
         raise aborted
-    return MoveReport(report_dest, logger.path, tuple(results), cancelled, tuple(folder_results))
+    return MoveReport(
+        report_dest, logger.path, tuple(results), cancelled, tuple(folder_results), tuple(name_records),
+    )
 
 
 def _record_cancelled(

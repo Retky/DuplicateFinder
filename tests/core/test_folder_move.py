@@ -1,13 +1,21 @@
 """A selected duplicate folder moves in one step, and does not take a file move with it."""
 
+import threading
+
 import pytest
 
 from duplicate_finder.core.analysis import analyze
-from duplicate_finder.core.file_mover import ContentMove, folder_destination, move_duplicates
+from duplicate_finder.core.file_mover import (
+    OTHER_NAMES_FILE,
+    ContentMove,
+    folder_destination,
+    move_duplicates,
+)
 from duplicate_finder.core.folder_groups import group_folder_sets
 from duplicate_finder.core.folder_scan import scan_folder_trees
 from duplicate_finder.core.models import MoveOutcome
 from duplicate_finder.core.operation_logger import read_log
+from duplicate_finder.ui.presenters import move_report_text
 from tests.winhelpers import write
 
 PHOTO = b"photo-bytes"
@@ -52,6 +60,7 @@ def test_selected_duplicate_folder_moves_intact(tmp_path):
     assert (tmp_path / "Album" / "notes" / "read.txt").read_bytes() == NOTE
     assert not (tmp_path / "dups" / "01_Name").exists()
     assert not (tmp_path / "dups" / "02_Content").exists()
+    assert (tmp_path / "Album" / OTHER_NAMES_FILE).read_text(encoding="utf-8") == "Album (1)\n"
 
     events = read_log(report.log_path)
     recorded = [event for event in events if event["event"] == "result"]
@@ -75,6 +84,8 @@ def test_existing_destination_name_skips_the_folder(tmp_path):
     assert (duplicate / "Photo.jpg").read_bytes() == PHOTO
     assert blocking.read_bytes() == b"keep"
     assert (tmp_path / "Album").is_dir()
+    assert not (tmp_path / "Album" / OTHER_NAMES_FILE).exists()
+    assert report.name_records == ()
 
 
 def test_a_file_inside_the_selected_folder_is_not_moved_again(tmp_path):
@@ -156,3 +167,77 @@ def test_selecting_the_original_or_the_same_folder_twice_creates_nothing(tmp_pat
     with pytest.raises(ValueError):
         move_duplicates(analysis, [], folders=[duplicate, duplicate], folder_groups=groups)
     assert not (tmp_path / "dups").exists()
+
+
+def albums(folder):
+    for name in ("Album", "Album (1)", "Album (2)"):
+        write(folder / name / "Photo.jpg", PHOTO)
+
+
+def test_cancel_after_the_first_folder_records_only_that_name(tmp_path):
+    albums(tmp_path)
+    first = tmp_path / "Album (1)"
+    second = tmp_path / "Album (2)"
+    analysis = analyze(tmp_path)
+    groups = groups_of(tmp_path)
+    cancel = threading.Event()
+
+    def stop_after_first(done: int, _total: int) -> None:
+        if done == 1:
+            cancel.set()
+
+    report = move_duplicates(
+        analysis, [], folders=[first, second], folder_groups=groups,
+        on_progress=stop_after_first, cancel=cancel,
+    )
+
+    registry = tmp_path / "Album" / OTHER_NAMES_FILE
+    assert report.cancelled
+    assert [result.outcome for result in report.folder_results] == [MoveOutcome.MOVED, MoveOutcome.CANCELLED]
+    assert registry.read_text(encoding="utf-8") == "Album (1)\n"
+    assert second.is_dir()
+    text = move_report_text(report)
+    assert f"Names recorded in {registry}:" in text
+    assert "Album (1)" in text
+    assert "Album (2)" not in text
+
+
+def test_a_later_move_appends_the_next_name(tmp_path):
+    albums(tmp_path)
+    first = tmp_path / "Album (1)"
+    second = tmp_path / "Album (2)"
+    analysis = analyze(tmp_path)
+    groups = groups_of(tmp_path)
+
+    move_duplicates(analysis, [], folders=[first], folder_groups=groups)
+    move_duplicates(analysis, [], folders=[second], folder_groups=groups)
+
+    registry = tmp_path / "Album" / OTHER_NAMES_FILE
+    assert registry.read_text(encoding="utf-8") == "Album (1)\nAlbum (2)\n"
+
+
+def test_a_name_file_without_a_trailing_newline_stays_one_name_per_line(tmp_path):
+    pair(tmp_path)
+    registry = write(tmp_path / "Album" / OTHER_NAMES_FILE, b"earlier")
+
+    move_duplicates(analyze(tmp_path), [], folders=[tmp_path / "Album (1)"], folder_groups=groups_of(tmp_path))
+
+    assert registry.read_bytes() == b"earlier\nAlbum (1)\n"
+
+
+def test_a_directory_in_place_of_the_name_file_leaves_the_folder_moved(tmp_path):
+    pair(tmp_path)
+    blocked = tmp_path / "Album" / OTHER_NAMES_FILE
+    blocked.mkdir()
+    duplicate = tmp_path / "Album (1)"
+
+    report = move_duplicates(analyze(tmp_path), [], folders=[duplicate], folder_groups=groups_of(tmp_path))
+
+    assert [result.outcome for result in report.folder_results] == [MoveOutcome.MOVED]
+    assert (folder_destination(tmp_path) / "Album (1)").is_dir()
+    assert not duplicate.exists()
+    assert blocked.is_dir()
+    assert len(report.name_records) == 1
+    assert report.name_records[0].name == "Album (1)"
+    assert report.name_records[0].error
+    assert f"Not recorded: Album (1) — {report.name_records[0].error}" in move_report_text(report)

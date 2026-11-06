@@ -6,7 +6,13 @@ from datetime import datetime
 from pathlib import Path
 
 from duplicate_finder.core.analysis import Phase
-from duplicate_finder.core.file_mover import MoveReport, content_destination, folder_destination, name_destination
+from duplicate_finder.core.file_mover import (
+    MoveReport,
+    NameRecord,
+    content_destination,
+    folder_destination,
+    name_destination,
+)
 from duplicate_finder.core.models import Candidate, CandidateStatus, DuplicateGroup, GroupKind, MoveOutcome, is_movable
 from duplicate_finder.formatting import format_size
 
@@ -176,7 +182,28 @@ def move_report_text(report: MoveReport) -> str:
     lines = [f"{OUTCOME_TEXT[outcome]}: {report.totals[outcome.value]}" for outcome in MoveOutcome]
     if report.log_path is not None:
         lines.append(f"Log: {report.log_path}")
+    lines.extend(_recorded_name_lines(report.name_records))
     return "\n".join(lines)
+
+
+def _recorded_name_lines(records: Sequence[NameRecord]) -> list[str]:
+    grouped: dict[Path, list[NameRecord]] = {}
+    order: list[Path] = []
+    for record in records:
+        if record.path not in grouped:
+            order.append(record.path)
+            grouped[record.path] = []
+        grouped[record.path].append(record)
+    lines: list[str] = []
+    for path in order:
+        written = [record.name for record in grouped[path] if record.error is None]
+        if written:
+            lines.append(f"Names recorded in {path}:")
+            lines.extend(written)
+        for record in grouped[path]:
+            if record.error is not None:
+                lines.append(f"Not recorded: {record.name} — {record.error}")
+    return lines
 
 
 def analyze_progress_text(phase: Phase, done: int, total: int) -> str:

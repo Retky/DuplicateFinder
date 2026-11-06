@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from duplicate_finder.core.analysis import Phase
-from duplicate_finder.core.file_mover import MoveReport
+from duplicate_finder.core.file_mover import MoveReport, NameRecord
 from duplicate_finder.core.models import (
     Candidate,
     CandidateStatus,
@@ -142,6 +142,31 @@ def test_move_report_lists_every_outcome(tmp_path):
     assert "Errors: 0" in text
     assert "Cancelled: 0" in text
     assert str(report.log_path) in text
+    assert "Names recorded" not in text
+    assert "Not recorded" not in text
+
+
+def test_move_report_lists_recorded_names_per_kept_folder(tmp_path):
+    group = confirmed_group()
+    move = PlannedMove("g0001", group.original, group.candidates[0], tmp_path / "dups" / "Photo (1).jpg")
+    from duplicate_finder.core.file_mover import MoveResult
+
+    album = tmp_path / "Album" / "other-names.txt"
+    other = tmp_path / "Set" / "other-names.txt"
+    report = MoveReport(
+        tmp_path / "dups", tmp_path / "dups" / "_logs" / "run.jsonl",
+        (MoveResult(move, MoveOutcome.MOVED, None),), False,
+        name_records=(
+            NameRecord(album.parent, album, "Album (1)"),
+            NameRecord(album.parent, album, "Album (2)"),
+            NameRecord(other.parent, other, "Set (1)", "Permission denied"),
+        ),
+    )
+    text = move_report_text(report)
+    assert "Moved: 1" in text
+    assert text.index(f"Names recorded in {album}:") < text.index("Album (1)") < text.index("Album (2)")
+    assert f"Names recorded in {other}:" not in text
+    assert "Not recorded: Set (1) — Permission denied" in text
 
 
 def test_progress_text():
