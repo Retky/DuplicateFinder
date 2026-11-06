@@ -1,6 +1,8 @@
-from duplicate_finder import __version__
+def run(argv: list[str] | None = None) -> int:
+    if argv:
+        from duplicate_finder.cli import main
 
+        return main(argv)
+    from duplicate_finder.ui.app import run as run_window
 
-def run() -> int:
-    print(f"Duplicate Finder {__version__}")
-    return 0
+    return run_window()

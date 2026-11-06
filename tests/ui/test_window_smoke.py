@@ -1,0 +1,66 @@
+import tkinter as tk
+from pathlib import Path
+
+import pytest
+
+from duplicate_finder.core.analysis import AnalysisResult
+from duplicate_finder.core.config import Config
+from duplicate_finder.core.filename_parser import ALL_PATTERNS
+from duplicate_finder.core.models import (
+    Candidate,
+    CandidateStatus,
+    DuplicateGroup,
+    FileEntry,
+    ParsedName,
+    ScanResult,
+)
+from duplicate_finder.ui.main_window import MainWindow
+
+HASH = "a" * 64
+
+
+def sample(folder: Path) -> AnalysisResult:
+    original = FileEntry(folder / "Photo.jpg", "Photo.jpg", 100, 1)
+    confirmed_file = FileEntry(folder / "Photo (1).jpg", "Photo (1).jpg", 100, 1)
+    other_file = FileEntry(folder / "Photo (2).jpg", "Photo (2).jpg", 120, 1)
+
+    def parsed(name: str) -> ParsedName:
+        return ParsedName(name.removesuffix(".jpg"), ".jpg", "Photo", "photo", ".jpg", ("paren_num",))
+
+    confirmed = Candidate(confirmed_file, parsed("Photo (1).jpg"), CandidateStatus.CONFIRMED, HASH)
+    different = Candidate(other_file, parsed("Photo (2).jpg"), CandidateStatus.DIFFERENT_SIZE)
+    group = DuplicateGroup("g0001", ("photo", ".jpg"), original, HASH, (confirmed, different))
+    scan = ScanResult(folder, (original, confirmed_file, other_file), (), ())
+    return AnalysisResult(scan, (group,), ALL_PATTERNS, False)
+
+
+def test_window_shows_results_and_toggles_the_confirmed_row(tmp_path):
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("no display available")
+    root.withdraw()
+    try:
+        window = MainWindow(root, Config(ALL_PATTERNS, None), config_directory=tmp_path)
+        result = sample(tmp_path)
+        window.show_analysis(result)
+        root.update_idletasks()
+
+        copy = tmp_path / "Photo (1).jpg"
+        row = window.results.row_for(copy)
+        assert row is not None
+        assert window.results.tree.set(row, "mark") == "☑"
+        assert "1 selected" in window.summary_var.get()
+        assert "100 B to move" in window.summary_var.get()
+        assert not window.move_button.instate(["disabled"])
+
+        window.results.toggle(row)
+        root.update_idletasks()
+
+        assert window.results.tree.set(row, "mark") == "☐"
+        assert "0 selected" in window.summary_var.get()
+        assert window.move_button.instate(["disabled"])
+        assert window.results.row_for(tmp_path / "Photo (2).jpg") is not None
+        assert window.results.tree.set(window.results.row_for(tmp_path / "Photo (2).jpg"), "mark") == ""
+    finally:
+        root.destroy()
