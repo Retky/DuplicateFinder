@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from duplicate_finder.core.folder_scan import FolderTree
+from duplicate_finder.core.folder_scan import FolderFile, FolderTree
 from duplicate_finder.core.hasher import HashCancelled, sha256_file
 
 Identity = tuple[object, ...]
@@ -34,9 +34,29 @@ class FolderRelation:
 
 
 @dataclass(frozen=True, slots=True)
+class PairedFile:
+    """One file in an equal-folder correspondence."""
+
+    file: FolderFile
+    digest: str
+
+
+@dataclass(frozen=True, slots=True)
 class _Node:
     files: tuple[Identity, ...]
     children: tuple["_Node", ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _Placed:
+    file: FolderFile
+    identity: Identity
+
+
+@dataclass(frozen=True, slots=True)
+class _Dir:
+    files: tuple[_Placed, ...]
+    children: tuple["_Dir", ...]
 
 
 def compare_folder_sets(
@@ -160,3 +180,122 @@ def _assign(smaller: tuple[_Node, ...], larger: tuple[_Node, ...], index: int, u
             return True
         used.remove(candidate)
     return False
+
+
+def equal_correspondence(
+    left: FolderTree,
+    right: FolderTree,
+    known_digests: Mapping[Path, str] | None = None,
+    cancel: threading.Event | None = None,
+) -> tuple[tuple[PairedFile, PairedFile], ...] | None:
+    """Return one file pairing when the trees are equal.
+
+    Several child pairings can fit. The one kept is the pairing whose paired
+    relative paths sort first in case-folded order. Anything else returns None.
+    """
+    identities = _identities((left, right), {} if known_digests is None else known_digests, cancel)
+    if identities is None:
+        return None
+    return _equal_pairs(_directory(left, identities), _directory(right, identities))
+
+
+def _directory(tree: FolderTree, identities: Mapping[Path, Identity]) -> _Dir:
+    items = [(item.relative, _Placed(item, identities[item.entry.path])) for item in tree.files]
+    return _build_dir(items)
+
+
+def _build_dir(items: list[tuple[tuple[str, ...], _Placed]]) -> _Dir:
+    here: list[_Placed] = []
+    groups: dict[str, list[tuple[tuple[str, ...], _Placed]]] = defaultdict(list)
+    for relative, placed in items:
+        if len(relative) == 1:
+            here.append(placed)
+        else:
+            groups[relative[0]].append((relative[1:], placed))
+    children = tuple(
+        _build_dir(members)
+        for _, members in sorted(groups.items(), key=lambda item: item[0].casefold())
+    )
+    return _Dir(tuple(here), children)
+
+
+def _equal_pairs(left: _Dir, right: _Dir) -> tuple[tuple[PairedFile, PairedFile], ...] | None:
+    files = _pair_files(left.files, right.files)
+    if files is None:
+        return None
+    children = _best_child_pairs(left.children, right.children, files)
+    if children is None:
+        return None
+    return files + children
+
+
+def _pair_files(
+    left: tuple[_Placed, ...],
+    right: tuple[_Placed, ...],
+) -> tuple[tuple[PairedFile, PairedFile], ...] | None:
+    left_groups: dict[Identity, list[_Placed]] = defaultdict(list)
+    right_groups: dict[Identity, list[_Placed]] = defaultdict(list)
+    for placed in left:
+        left_groups[placed.identity].append(placed)
+    for placed in right:
+        right_groups[placed.identity].append(placed)
+    left_counts = {identity: len(items) for identity, items in left_groups.items()}
+    right_counts = {identity: len(items) for identity, items in right_groups.items()}
+    if left_counts != right_counts:
+        return None
+    pairs: list[tuple[PairedFile, PairedFile]] = []
+    for identity, left_items in left_groups.items():
+        right_items = right_groups[identity]
+        left_items.sort(key=lambda item: _relative_key(item.file.relative))
+        right_items.sort(key=lambda item: _relative_key(item.file.relative))
+        digest = identity[2] if identity[0] == "hash" else ""
+        for left_item, right_item in zip(left_items, right_items, strict=True):
+            pairs.append((PairedFile(left_item.file, str(digest)), PairedFile(right_item.file, str(digest))))
+    return tuple(pairs)
+
+
+def _best_child_pairs(
+    left: tuple[_Dir, ...],
+    right: tuple[_Dir, ...],
+    fixed: tuple[tuple[PairedFile, PairedFile], ...],
+) -> tuple[tuple[PairedFile, PairedFile], ...] | None:
+    if len(left) != len(right):
+        return None
+    best_key: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] | None = None
+    best: tuple[tuple[PairedFile, PairedFile], ...] | None = None
+
+    def search(index: int, used: set[int], found: list[tuple[PairedFile, PairedFile]]) -> None:
+        nonlocal best, best_key
+        if index == len(left):
+            key = _paired_paths([*fixed, *found])
+            if best_key is None or key < best_key:
+                best_key = key
+                best = tuple(found)
+            return
+        for candidate, other in enumerate(right):
+            if candidate in used:
+                continue
+            nested = _equal_pairs(left[index], other)
+            if nested is None:
+                continue
+            used.add(candidate)
+            found.extend(nested)
+            search(index + 1, used, found)
+            del found[-len(nested):]
+            used.remove(candidate)
+
+    search(0, set(), [])
+    return best
+
+
+def _paired_paths(
+    pairs: list[tuple[PairedFile, PairedFile]],
+) -> tuple[tuple[tuple[str, ...], tuple[str, ...]], ...]:
+    return tuple(sorted(
+        (_relative_key(left.file.relative), _relative_key(right.file.relative))
+        for left, right in pairs
+    ))
+
+
+def _relative_key(relative: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(part.casefold() for part in relative)
