@@ -30,6 +30,7 @@ class SkipReason(StrEnum):
     HIDDEN_OR_SYSTEM = "hidden_or_system"
     SYSTEM_NAME = "system_name"
     INCOMPLETE_DOWNLOAD = "incomplete_download"
+    EXCLUDED_EXTENSION = "excluded_extension"
     EMPTY = "empty"
 
 

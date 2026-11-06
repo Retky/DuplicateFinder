@@ -54,6 +54,7 @@ def analyze(
     *,
     match_names: bool = True,
     match_content: bool = True,
+    excluded_extensions: frozenset[str] = frozenset(),
 ) -> AnalysisResult:
     """Analyze a folder without modifying anything.
 
@@ -67,7 +68,9 @@ def analyze(
             return None
         return lambda done, total: on_progress(phase, done, total)
 
-    scan = scan_folder(folder, on_progress=report(Phase.SCAN), cancel=cancel)
+    scan = scan_folder(
+        folder, on_progress=report(Phase.SCAN), cancel=cancel, excluded_extensions=excluded_extensions,
+    )
     name_groups = build_groups(scan.entries, enabled) if match_names else []
     verified = verify_groups(name_groups, on_progress=report(Phase.VERIFY), cancel=cancel)
     cancelled = cancel is not None and cancel.is_set()

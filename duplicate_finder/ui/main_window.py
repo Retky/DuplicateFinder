@@ -150,6 +150,7 @@ class MainWindow(ttk.Frame):
         enabled = self.settings.enabled()
         match_names = self.settings.match_names()
         match_content = self.settings.match_content()
+        excluded_extensions = self.settings.excluded_extensions()
 
         def task(cancel, report) -> object:
             if operation == "analyze":
@@ -162,6 +163,7 @@ class MainWindow(ttk.Frame):
                 return analyze(
                     folder, enabled, on_progress=on_progress, cancel=cancel,
                     match_names=match_names, match_content=match_content,
+                    excluded_extensions=excluded_extensions,
                 )
 
             analysis, selected, content = args

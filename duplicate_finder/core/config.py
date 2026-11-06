@@ -7,6 +7,7 @@ is the only ``os.replace`` in the project.
 
 import json
 import os
+import re
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,12 +20,18 @@ APP_DIR_NAME = "DuplicateFinder"
 CONFIG_FILE_NAME = "config.json"
 
 
+_EXTENSION_RE = re.compile(r"\.[a-z0-9]+\Z")
+
+
 @dataclass(frozen=True, slots=True)
 class Config:
     enabled_patterns: frozenset[str]
     last_folder: Path | None
     match_names: bool = True
     match_content: bool = True
+    match_folders: bool = False
+    match_subfolders: bool = False
+    excluded_extensions: frozenset[str] = frozenset()
 
 
 def default_config_dir() -> Path:
@@ -54,6 +61,34 @@ def _read_flag(value: object, default: bool = True) -> bool:
     return default
 
 
+def _one_extension(text: str) -> str:
+    ext = text.strip().casefold()
+    if not ext.startswith("."):
+        ext = f".{ext}"
+    if _EXTENSION_RE.fullmatch(ext) is None:
+        raise ValueError(f"not an extension: {text}")
+    return ext
+
+
+def parse_excluded_extensions(text: str) -> frozenset[str]:
+    """Parse a comma- or whitespace-separated extension list. A missing dot is added."""
+    return frozenset(_one_extension(part) for part in re.split(r"[\s,]+", text.strip()) if part)
+
+
+def _read_extensions(value: object) -> frozenset[str]:
+    if not isinstance(value, list):
+        return frozenset()
+    found: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        try:
+            found.append(_one_extension(item))
+        except ValueError:
+            continue
+    return frozenset(found)
+
+
 def _read_folder(value: object) -> Path | None:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -70,11 +105,15 @@ def load_config(directory: Path | None = None) -> Config:
         return _defaults()
     if not isinstance(raw, dict):
         return _defaults()
+    match_folders = _read_flag(raw.get("match_folders"), default=False)
     return Config(
         enabled_patterns=_read_patterns(raw.get("enabled_patterns")),
         last_folder=_read_folder(raw.get("last_folder")),
         match_names=_read_flag(raw.get("match_names")),
         match_content=_read_flag(raw.get("match_content")),
+        match_folders=match_folders,
+        match_subfolders=_read_flag(raw.get("match_subfolders"), default=False) and match_folders,
+        excluded_extensions=_read_extensions(raw.get("excluded_extensions")),
     )
 
 
@@ -85,6 +124,10 @@ def save_config(config: Config, directory: Path | None = None) -> Path:
         raise ValueError(f"unknown pattern ids: {sorted(unknown)}")
     if config.last_folder is not None and not config.last_folder.is_absolute():
         raise ValueError(f"last_folder must be absolute: {config.last_folder}")
+    excluded = parse_excluded_extensions(" ".join(sorted(config.excluded_extensions)))
+    if excluded != config.excluded_extensions:
+        raise ValueError(f"not an extension: {sorted(config.excluded_extensions - excluded)}")
+    match_subfolders = config.match_subfolders and config.match_folders
 
     path = _config_path(directory)
     os.makedirs(to_os_path(path.parent), exist_ok=True)
@@ -95,6 +138,9 @@ def save_config(config: Config, directory: Path | None = None) -> Path:
         "last_folder": None if config.last_folder is None else str(config.last_folder),
         "match_names": config.match_names,
         "match_content": config.match_content,
+        "match_folders": config.match_folders,
+        "match_subfolders": match_subfolders,
+        "excluded_extensions": sorted(excluded),
     }
     try:
         with open(to_os_path(temporary), "w", encoding="utf-8", newline="\n") as handle:

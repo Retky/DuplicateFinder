@@ -47,7 +47,8 @@ def validate_folder(folder: Path) -> Path:
     return absolute
 
 
-def classify(name: str, is_dir: bool, attributes: int, size: int) -> SkipReason | None:
+def classify(name: str, is_dir: bool, attributes: int, size: int,
+             excluded_extensions: frozenset[str] = frozenset()) -> SkipReason | None:
     """Return why an entry must be skipped, or None if it is a file to analyze. First rule wins."""
     if attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT:
         return SkipReason.LINK
@@ -57,6 +58,8 @@ def classify(name: str, is_dir: bool, attributes: int, size: int) -> SkipReason 
         return SkipReason.HIDDEN_OR_SYSTEM
     if name.casefold() in SYSTEM_NAMES:
         return SkipReason.SYSTEM_NAME
+    if os.path.splitext(name)[1].casefold() in excluded_extensions:
+        return SkipReason.EXCLUDED_EXTENSION
     if os.path.splitext(name)[1].casefold() in INCOMPLETE_DOWNLOAD_EXTENSIONS:
         return SkipReason.INCOMPLETE_DOWNLOAD
     if size == 0:
@@ -79,6 +82,7 @@ def scan_folder(
     folder: Path,
     on_progress: ProgressCallback | None = None,
     cancel: threading.Event | None = None,
+    excluded_extensions: frozenset[str] = frozenset(),
 ) -> ScanResult:
     folder = validate_folder(folder)
     with os.scandir(to_os_path(folder)) as iterator:
@@ -99,7 +103,9 @@ def scan_folder(
         except OSError as exc:
             errors.append(ScanError(path, exc.strerror or str(exc)))
         else:
-            reason = classify(dir_entry.name, stat.S_ISDIR(st.st_mode), st.st_file_attributes, st.st_size)
+            reason = classify(
+                dir_entry.name, stat.S_ISDIR(st.st_mode), st.st_file_attributes, st.st_size, excluded_extensions,
+            )
             if reason is None:
                 entries.append(FileEntry(
                     path, dir_entry.name, st.st_size, st.st_mtime_ns, _created_ns(st),
