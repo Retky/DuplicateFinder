@@ -21,6 +21,7 @@ class SettingsPanel(ttk.LabelFrame):
         self._match_content = tk.BooleanVar(value=True)
         self._match_folders = tk.BooleanVar(value=config.match_folders)
         self._match_subfolders = tk.BooleanVar(value=config.match_subfolders and config.match_folders)
+        self._match_nested_files = tk.BooleanVar(value=config.match_nested_files)
         self._excluded = tk.StringVar(value=", ".join(sorted(config.excluded_extensions)))
         names = ttk.Checkbutton(self, text="Match names", variable=self._match_names, command=self._changed)
         content = ttk.Checkbutton(self, text="Match content", variable=self._match_content)
@@ -41,10 +42,14 @@ class SettingsPanel(ttk.LabelFrame):
         folders.grid(row=2, column=0, sticky="w", padx=8, pady=2)
         subfolders.grid(row=2, column=1, sticky="w", padx=8, pady=2)
         self._subfolder_check = subfolders
-        self._checks.extend((folders, subfolders))
-        ttk.Label(self, text="Excluded extensions").grid(row=3, column=0, sticky="w", padx=8, pady=2)
+        nested = ttk.Checkbutton(
+            self, text="Recursive file matching", variable=self._match_nested_files, command=self._changed,
+        )
+        nested.grid(row=3, column=0, columnspan=2, sticky="w", padx=8, pady=2)
+        self._checks.extend((folders, subfolders, nested))
+        ttk.Label(self, text="Excluded extensions").grid(row=4, column=0, sticky="w", padx=8, pady=2)
         self._extension_entry = ttk.Entry(self, textvariable=self._excluded)
-        self._extension_entry.grid(row=3, column=1, sticky="ew", padx=8, pady=2)
+        self._extension_entry.grid(row=4, column=1, sticky="ew", padx=8, pady=2)
         self._extension_entry.bind("<FocusOut>", lambda _event: self._changed())
         self._extension_entry.bind("<Return>", lambda _event: self._changed())
         self._apply_folder_state()
@@ -52,7 +57,7 @@ class SettingsPanel(ttk.LabelFrame):
         for index, pattern in enumerate(PATTERNS):
             variable = tk.BooleanVar(value=pattern.id in config.enabled_patterns)
             check = ttk.Checkbutton(self, text=pattern.example, variable=variable, command=self._changed)
-            check.grid(row=4 + index // 2, column=index % 2, sticky="w", padx=8, pady=2)
+            check.grid(row=5 + index // 2, column=index % 2, sticky="w", padx=8, pady=2)
             self._checks.append(check)
             self._vars[pattern.id] = variable
 
@@ -70,6 +75,9 @@ class SettingsPanel(ttk.LabelFrame):
 
     def match_subfolders(self) -> bool:
         return self.match_folders() and bool(self._match_subfolders.get())
+
+    def match_nested_files(self) -> bool:
+        return bool(self._match_nested_files.get())
 
     def excluded_extensions(self) -> frozenset[str]:
         return parse_excluded_extensions(self._excluded.get())
@@ -114,6 +122,7 @@ class SettingsPanel(ttk.LabelFrame):
             save_config(Config(
                 self.enabled(), self._last_folder, self.match_names(), self.match_content(),
                 self.match_folders(), self.match_subfolders(), extensions,
+                match_nested_files=self.match_nested_files(),
             ), self._config_directory)
         except (OSError, ValueError) as exc:
             messagebox.showerror("Duplicate Finder", f"Could not save settings: {exc}",

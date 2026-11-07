@@ -20,6 +20,7 @@ from duplicate_finder.ui.presenters import (
     analyze_progress_text,
     can_toggle,
     confirm_text,
+    display_name,
     group_title,
     move_progress_text,
     move_report_text,
@@ -128,6 +129,13 @@ def test_group_titles():
     ambiguous = candidate("Photo (1).jpg", CandidateStatus.AMBIGUOUS)
     ambiguous_group = DuplicateGroup("g0003", ("photo", ".jpg"), None, None, (ambiguous,))
     assert group_title(ambiguous_group) == "[g0003] Photo.jpg (ambiguous original)"
+
+    nested = FileEntry(FOLDER / "Album" / "Photo.jpg", "Photo.jpg", 100, 1)
+    nested_group = DuplicateGroup("g0004", ("photo", ".jpg"), nested, HASH_A, (candidate("Photo (1).jpg", CandidateStatus.CONFIRMED),))
+    relative = str(Path("Album") / "Photo.jpg")
+    assert display_name(nested.path, FOLDER) == relative
+    assert display_name(FOLDER / "Photo.jpg", FOLDER) == "Photo.jpg"
+    assert group_title(nested_group, FOLDER) == f"[g0004] {relative} (100 B)"
 
 
 def test_move_report_lists_every_outcome(tmp_path):

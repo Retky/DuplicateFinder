@@ -97,12 +97,25 @@ def short_hash(value: str | None) -> str:
     return value[:HASH_PREFIX_LENGTH]
 
 
-def group_title(group: DuplicateGroup) -> str:
+def display_name(path: Path, root: Path | None = None) -> str:
+    """The file name, or its path relative to ``root`` when the file is nested."""
+    if root is None:
+        return path.name
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        return path.name
+    if len(relative.parts) <= 1:
+        return path.name
+    return str(relative)
+
+
+def group_title(group: DuplicateGroup, root: Path | None = None) -> str:
     if group.kind is GroupKind.CONTENT and group.candidates:
         extension = group.candidates[0].parsed.ext or "(no extension)"
         return f"[{group.group_id}] Content match {extension} ({len(group.candidates)} files)"
     if group.original is not None:
-        return f"[{group.group_id}] {group.original.name} ({format_size(group.original.size)})"
+        return f"[{group.group_id}] {display_name(group.original.path, root)} ({format_size(group.original.size)})"
     first = group.candidates[0]
     name = first.parsed.base + first.parsed.ext
     if first.status is CandidateStatus.AMBIGUOUS:

@@ -122,6 +122,8 @@ def _identities(
                     if read != entry.size:
                         identities[entry.path] = ("unread", entry.path)
                         digest = None
+                    elif isinstance(known_digests, dict):
+                        known_digests[entry.path] = digest
             if digest is not None:
                 identities[entry.path] = ("hash", extension, digest)
         if on_progress is not None and total:

@@ -32,6 +32,7 @@ class Config:
     match_folders: bool = False
     match_subfolders: bool = False
     excluded_extensions: frozenset[str] = frozenset()
+    match_nested_files: bool = False
 
 
 def default_config_dir() -> Path:
@@ -114,6 +115,7 @@ def load_config(directory: Path | None = None) -> Config:
         match_folders=match_folders,
         match_subfolders=_read_flag(raw.get("match_subfolders"), default=False) and match_folders,
         excluded_extensions=_read_extensions(raw.get("excluded_extensions")),
+        match_nested_files=_read_flag(raw.get("match_nested_files"), default=False),
     )
 
 
@@ -141,6 +143,7 @@ def save_config(config: Config, directory: Path | None = None) -> Path:
         "match_folders": config.match_folders,
         "match_subfolders": match_subfolders,
         "excluded_extensions": sorted(excluded),
+        "match_nested_files": config.match_nested_files,
     }
     try:
         with open(to_os_path(temporary), "w", encoding="utf-8", newline="\n") as handle:

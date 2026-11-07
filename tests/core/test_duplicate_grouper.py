@@ -132,6 +132,16 @@ def test_duplicate_paths_rejected():
         build_groups([entry("Photo.jpg"), entry("Photo.jpg")])
 
 
-def test_entries_from_different_folders_rejected():
+def test_entries_from_different_folders_rejected(tmp_path):
     with pytest.raises(ValueError):
         build_groups([entry("Photo.jpg"), entry("Photo (1).jpg", folder=Path(r"C:\Other"))])
+
+    original = entry("Photo.jpg", folder=tmp_path)
+    copy = entry("Photo (1).jpg", folder=tmp_path / "Album")
+    groups = build_groups([original, copy], root=tmp_path)
+    assert groups[0].original is not None
+    assert groups[0].original.path == original.path
+    assert [item.entry.path for item in groups[0].candidates] == [copy.path]
+
+    with pytest.raises(ValueError):
+        build_groups([original, entry("Photo (2).jpg", folder=tmp_path.parent)], root=tmp_path)

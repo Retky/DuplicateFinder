@@ -134,7 +134,7 @@ class MainWindow(ttk.Frame):
         """Show results directly. Used by the worker callback and by tests."""
         self.analysis = result
         self.stale = False
-        self.results.show(result.groups, result.folder_groups, result.folders_hidden)
+        self.results.show(result.groups, result.folder_groups, result.folders_hidden, result.folder)
         self._update_summary()
         if not result.groups and not result.folder_groups:
             self.status_var.set("No duplicate candidates found.")
@@ -154,6 +154,7 @@ class MainWindow(ttk.Frame):
         excluded_extensions = self.settings.excluded_extensions()
         match_folders = self.settings.match_folders()
         match_subfolders = self.settings.match_subfolders()
+        match_nested_files = self.settings.match_nested_files()
 
         def task(cancel, report) -> object:
             if operation == "analyze":
@@ -169,6 +170,7 @@ class MainWindow(ttk.Frame):
                     excluded_extensions=excluded_extensions,
                     match_folders=match_folders,
                     match_subfolders=match_subfolders,
+                    match_nested_files=match_nested_files,
                 )
 
             analysis, selected, content, folders = args

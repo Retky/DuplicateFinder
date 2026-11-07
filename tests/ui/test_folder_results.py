@@ -5,12 +5,14 @@ from pathlib import Path
 
 import pytest
 
+from duplicate_finder.core.analysis import analyze
 from duplicate_finder.core.config import Config
 from duplicate_finder.core.filename_parser import ALL_PATTERNS
 from duplicate_finder.core.folder_groups import FolderGroup
 from duplicate_finder.ui.presenters import MARK_OFF, MARK_ON, confirm_text
 from duplicate_finder.ui.results_view import HIDDEN_FOLDER_WARNING, ResultsView
 from duplicate_finder.ui.settings_panel import SettingsPanel
+from tests.winhelpers import write
 
 
 def open_root():
@@ -47,6 +49,13 @@ def test_subfolders_stay_disabled_until_folder_matching_is_on(tmp_path):
 
         assert panel.match_folders() is True
         assert "disabled" not in panel._subfolder_check.state()
+        nested = next(check for check in panel._checks if str(check.cget("text")) == "Recursive file matching")
+        assert panel.match_nested_files() is False
+        assert "disabled" not in nested.state()
+
+        panel._match_folders.set(False)
+        panel._folders_changed()
+        assert "disabled" not in nested.state()
     finally:
         root.destroy()
 
@@ -117,5 +126,21 @@ def test_select_visible_ticks_duplicate_folders_and_the_filter_keeps_those_ticks
         view.select_visible()
         assert group.original not in view.selected_folders
         assert group.duplicates[0] in view.selected_folders
+    finally:
+        root.destroy()
+
+
+def test_nested_file_row_shows_its_relative_path(tmp_path):
+    write(tmp_path / "FolderA" / "Photo.jpg", b"same")
+    write(tmp_path / "FolderB" / "Photo (1).jpg", b"same")
+    analysis = analyze(tmp_path, match_nested_files=True)
+    root = open_root()
+    try:
+        view = ResultsView(root, lambda: None)
+        view.show(analysis.groups, root=analysis.folder)
+        relative = str(Path("FolderB") / "Photo (1).jpg")
+        assert row_named(view, relative)
+        titles = [view.tree.item(item, "text") for item in view.tree.get_children("")]
+        assert any(str(Path("FolderA") / "Photo.jpg") in title for title in titles)
     finally:
         root.destroy()

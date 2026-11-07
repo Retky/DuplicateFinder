@@ -19,6 +19,7 @@ from duplicate_finder.ui.presenters import (
     can_toggle,
     content_status,
     format_timestamp,
+    display_name,
     group_title,
     selection_mark,
     short_hash,
@@ -46,6 +47,7 @@ class ResultsView(ttk.Frame):
         self._folder_rows: dict[str, Path] = {}
         self._visible_folders: set[Path] = set()
         self._paths: dict[str, Path] = {}
+        self._root: Path | None = None
 
         toolbar = ttk.Frame(self)
         toolbar.pack(fill="x")
@@ -98,9 +100,11 @@ class ResultsView(ttk.Frame):
         groups: tuple[DuplicateGroup, ...],
         folder_groups: tuple[FolderGroup, ...] = (),
         folders_hidden: bool = False,
+        root: Path | None = None,
     ) -> None:
         self._groups = groups
         self._folder_groups = folder_groups
+        self._root = root
         self._keepers.clear()
         self.selected = {candidate.entry.path for group in groups for candidate in group.confirmed}
         self.selected_folders = set()
@@ -256,7 +260,7 @@ class ResultsView(ttk.Frame):
             rows = self._visible(group)
             if not rows:
                 continue
-            parent = self.tree.insert("", "end", iid=group.group_id, text=group_title(group), tags=("original",))
+            parent = self.tree.insert("", "end", iid=group.group_id, text=group_title(group, self._root), tags=("original",))
             if group.original is not None:
                 self._paths[parent] = group.original.path
             for candidate in rows:
@@ -266,7 +270,7 @@ class ResultsView(ttk.Frame):
                 flags = self._toggle_flags(group, candidate)
                 self.tree.insert(parent, "end", iid=row_id, values=(
                     selection_mark(candidate, self.selected, **flags),
-                    candidate.entry.name,
+                    display_name(candidate.entry.path, self._root),
                     format_size(candidate.entry.size),
                     format_timestamp(candidate.entry.mtime_ns),
                     format_timestamp(candidate.entry.created_ns),

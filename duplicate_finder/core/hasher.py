@@ -54,7 +54,15 @@ def _pending(group: DuplicateGroup) -> list[Candidate]:
     return [c for c in group.candidates if c.status is CandidateStatus.PENDING_HASH]
 
 
-def _hash_entry(entry: FileEntry, report: Callable[[int], None], cancel: threading.Event | None) -> str:
+def _hash_entry(
+    entry: FileEntry,
+    report: Callable[[int], None],
+    cancel: threading.Event | None,
+    digests: dict[Path, str] | None = None,
+) -> str:
+    if digests is not None and entry.path in digests:
+        report(entry.size)
+        return digests[entry.path]
     read = 0
 
     def on_bytes(count: int) -> None:
@@ -65,6 +73,8 @@ def _hash_entry(entry: FileEntry, report: Callable[[int], None], cancel: threadi
     digest = sha256_file(entry.path, cancel, on_bytes)
     if read != entry.size:
         raise FileChangedError("File changed since scan")
+    if digests is not None:
+        digests[entry.path] = digest
     return digest
 
 
@@ -72,13 +82,14 @@ def _verify_group(
     group: DuplicateGroup,
     report: Callable[[int], None],
     cancel: threading.Event | None,
+    digests: dict[Path, str] | None = None,
 ) -> tuple[DuplicateGroup, bool]:
     """Return the verified group and whether verification was cancelled."""
     if group.original is None:
         raise ValueError(f"group {group.group_id} has pending candidates but no original")
 
     try:
-        original_sha256 = _hash_entry(group.original, report, cancel)
+        original_sha256 = _hash_entry(group.original, report, cancel, digests)
     except HashCancelled:
         return group, True
     except OSError as exc:
@@ -97,7 +108,7 @@ def _verify_group(
             candidates.append(candidate)
             continue
         try:
-            digest = _hash_entry(candidate.entry, report, cancel)
+            digest = _hash_entry(candidate.entry, report, cancel, digests)
         except HashCancelled:
             cancelled = True
             candidates.append(candidate)
@@ -116,6 +127,7 @@ def verify_groups(
     groups: Sequence[DuplicateGroup],
     on_progress: ProgressCallback | None = None,
     cancel: threading.Event | None = None,
+    digests: dict[Path, str] | None = None,
 ) -> list[DuplicateGroup]:
     """Verify every PENDING_HASH candidate.
 
@@ -141,6 +153,6 @@ def verify_groups(
         if cancelled or not _pending(group):
             result.append(group)
             continue
-        verified, cancelled = _verify_group(group, report, cancel)
+        verified, cancelled = _verify_group(group, report, cancel, digests)
         result.append(verified)
     return result

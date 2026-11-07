@@ -67,6 +67,7 @@ def build_content_groups(
     name_groups: Sequence[DuplicateGroup],
     on_progress: ProgressCallback | None = None,
     cancel: threading.Event | None = None,
+    digests: dict[Path, str] | None = None,
 ) -> tuple[list[DuplicateGroup], bool]:
     """Return content groups and whether hashing was cancelled.
 
@@ -86,6 +87,9 @@ def build_content_groups(
         return [], False
 
     known = _known_digests(name_groups)
+    if digests is not None:
+        for path, digest in digests.items():
+            known.setdefault(path, digest)
     total = sum(entry.size for entry in pending if entry.path not in known)
     done = 0
 
@@ -95,10 +99,10 @@ def build_content_groups(
         if on_progress is not None:
             on_progress(done, total)
 
-    digests: dict = {}
+    found: dict = {}
     for entry in pending:
         if entry.path in known:
-            digests[entry.path] = known[entry.path]
+            found[entry.path] = known[entry.path]
             continue
         if cancel is not None and cancel.is_set():
             return [], True
@@ -117,11 +121,13 @@ def build_content_groups(
             continue
         if read != entry.size:
             continue
-        digests[entry.path] = digest
+        found[entry.path] = digest
+        if digests is not None:
+            digests[entry.path] = digest
 
     grouped: dict[tuple[str, str], list[FileEntry]] = defaultdict(list)
     for entry in pending:
-        digest = digests.get(entry.path)
+        digest = found.get(entry.path)
         if digest is None:
             continue
         grouped[(parsed[entry.path].ext_key, digest)].append(entry)

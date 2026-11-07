@@ -115,9 +115,10 @@ def _build_plan(analysis: AnalysisResult, selected: Sequence[Candidate], dest_fo
             raise ValueError(f"only confirmed candidates can be moved: {source}")
         if group.original is None:
             raise ValueError(f"group {group.group_id} has no original: {source}")
-        if source.parent != analysis.folder:
-            raise ValueError(f"candidate is outside the analyzed folder: {source}")
-        plan.append(PlannedMove(group.group_id, group.original, candidate, dest_folder / candidate.entry.name))
+        plan.append(PlannedMove(
+            group.group_id, group.original, candidate,
+            _file_destination(analysis.folder, source, dest_folder),
+        ))
     return plan
 
 
@@ -160,10 +161,11 @@ def _build_content_plan(analysis: AnalysisResult, content: Sequence[ContentMove]
                 raise ValueError(f"a name original cannot be moved: {source}")
             if source in seen:
                 raise ValueError(f"candidate selected twice: {source}")
-            if source.parent != analysis.folder:
-                raise ValueError(f"candidate is outside the analyzed folder: {source}")
             seen.add(source)
-            plan.append(PlannedMove(group.group_id, move.keeper, found, dest_folder / found.entry.name))
+            plan.append(PlannedMove(
+                group.group_id, move.keeper, found,
+                _file_destination(analysis.folder, source, dest_folder),
+            ))
     return plan
 
 
@@ -187,6 +189,31 @@ def content_destination(folder: Path) -> Path:
 def folder_destination(folder: Path) -> Path:
     """Folder for a selected duplicate directory. It is not created here."""
     return folder / DEST_FOLDER_NAME / FOLDER_FOLDER_NAME
+
+
+def _file_destination(root: Path, source: Path, dest_folder: Path) -> Path:
+    if not _is_inside(source, root):
+        raise ValueError(f"candidate is outside the analyzed folder: {source}")
+    return dest_folder / source.relative_to(root)
+
+
+def _prepare_parents(dest: Path) -> None:
+    """Create missing parents of a nested destination, each checked as a real directory."""
+    missing: list[Path] = []
+    current = dest.parent
+    while True:
+        try:
+            os.lstat(to_os_path(current))
+        except FileNotFoundError:
+            missing.append(current)
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+            continue
+        break
+    for directory in reversed(missing):
+        _prepare_directory(directory)
 
 
 def _prepare_directory(dest: Path) -> None:
@@ -417,6 +444,8 @@ def move_duplicates(
         _prepare_directory(content_folder)
     if folder_plan:
         _prepare_directory(folders_folder)
+    for planned in plan:
+        _prepare_parents(planned.dest_path)
 
     logger = OperationLogger.create(dups / LOGS_FOLDER_NAME, clock)
     results: list[MoveResult] = []
