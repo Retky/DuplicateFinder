@@ -239,7 +239,7 @@ class MainWindow(ttk.Frame):
             self._update_move_button()
             self._show_move_report(value)
             if self.root.winfo_exists():
-                self.analyze()
+                self.status_var.set("Move finished. The list stays as it was until you analyze again.")
 
     def _on_failure(self, error: Exception) -> None:
         closing = self.close_after

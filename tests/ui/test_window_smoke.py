@@ -5,6 +5,7 @@ import pytest
 
 from duplicate_finder.core.analysis import AnalysisResult
 from duplicate_finder.core.config import Config
+from duplicate_finder.core.file_mover import MoveReport
 from duplicate_finder.core.filename_parser import ALL_PATTERNS
 from duplicate_finder.core.models import (
     Candidate,
@@ -83,5 +84,39 @@ def test_move_progress_fills_part_of_the_bar(tmp_path):
         assert window.status_var.get() == "Moving... 1 of 4"
         assert int(float(window.progress["maximum"])) == 1000
         assert int(float(window.progress["value"])) == 250
+    finally:
+        root.destroy()
+
+
+def test_move_success_leaves_the_list_and_does_not_analyze(tmp_path, monkeypatch):
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("no display available")
+    root.withdraw()
+    try:
+        window = MainWindow(root, Config(ALL_PATTERNS, None), config_directory=tmp_path)
+        result = sample(tmp_path)
+        window.show_analysis(result)
+        window.operation = "move"
+        window.busy = True
+        monkeypatch.setattr(window, "_show_move_report", lambda _report: None)
+
+        def fail_analyze() -> None:
+            raise AssertionError("analyze was started")
+
+        monkeypatch.setattr(window, "analyze", fail_analyze)
+        window._on_success(MoveReport(tmp_path / "_dups", None, (), False))
+        root.update_idletasks()
+
+        assert window.busy is False
+        assert window.stale is True
+        assert window.operation is None
+        assert window.move_button.instate(["disabled"])
+        assert not window.analyze_button.instate(["disabled"])
+        assert not window.browse_button.instate(["disabled"])
+        assert window.results.row_for(tmp_path / "Photo (1).jpg") is not None
+        assert window.analysis is result
+        assert window.status_var.get() == "Move finished. The list stays as it was until you analyze again."
     finally:
         root.destroy()

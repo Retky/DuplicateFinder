@@ -115,7 +115,7 @@ def test_confirm_text_names_the_destination():
     text = confirm_text(FOLDER, [group], {group.candidates[0].entry.path})
     assert "1 file(s) from 1 group(s)" in text
     assert "100 B" in text
-    assert str(FOLDER / "dups" / "01_Name") in text
+    assert str(FOLDER / "_dups" / "01_Name") in text
 
 
 def test_group_titles():
@@ -140,10 +140,10 @@ def test_group_titles():
 
 def test_move_report_lists_every_outcome(tmp_path):
     group = confirmed_group()
-    move = PlannedMove("g0001", group.original, group.candidates[0], tmp_path / "dups" / "Photo (1).jpg")
+    move = PlannedMove("g0001", group.original, group.candidates[0], tmp_path / "_dups" / "Photo (1).jpg")
     from duplicate_finder.core.file_mover import MoveResult
 
-    report = MoveReport(tmp_path / "dups", tmp_path / "dups" / "_logs" / "run.jsonl",
+    report = MoveReport(tmp_path / "_dups", tmp_path / "_dups" / "_logs" / "run.jsonl",
                         (MoveResult(move, MoveOutcome.MOVED, None),), False)
     text = move_report_text(report)
     assert "Moved: 1" in text
@@ -156,13 +156,13 @@ def test_move_report_lists_every_outcome(tmp_path):
 
 def test_move_report_lists_recorded_names_per_kept_folder(tmp_path):
     group = confirmed_group()
-    move = PlannedMove("g0001", group.original, group.candidates[0], tmp_path / "dups" / "Photo (1).jpg")
+    move = PlannedMove("g0001", group.original, group.candidates[0], tmp_path / "_dups" / "Photo (1).jpg")
     from duplicate_finder.core.file_mover import MoveResult
 
     album = tmp_path / "Album" / "other-names.txt"
     other = tmp_path / "Set" / "other-names.txt"
     report = MoveReport(
-        tmp_path / "dups", tmp_path / "dups" / "_logs" / "run.jsonl",
+        tmp_path / "_dups", tmp_path / "_dups" / "_logs" / "run.jsonl",
         (MoveResult(move, MoveOutcome.MOVED, None),), False,
         name_records=(
             NameRecord(album.parent, album, "Album (1)"),

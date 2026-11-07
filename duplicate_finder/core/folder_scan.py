@@ -1,7 +1,7 @@
 """Collects the folder trees folder matching is allowed to see.
 
 This does not compare folders. The selected folder itself is never a candidate,
-and the walk does not enter ``dups`` or a link.
+and the walk does not enter ``_dups`` or a link.
 """
 
 import os
@@ -22,7 +22,7 @@ from duplicate_finder.core.scanner import (
 )
 from duplicate_finder.core.winpath import to_os_path
 
-DUPS_NAME = "dups"
+DUPS_NAME = "_dups"
 METADATA_NAMES = frozenset({"desktop.ini", "thumbs.db", "ehthumbs.db"})
 _HIDDEN = stat.FILE_ATTRIBUTE_HIDDEN | stat.FILE_ATTRIBUTE_SYSTEM
 
@@ -66,7 +66,7 @@ def observe_folder(
 ) -> tuple[Path, tuple[Observation, ...]]:
     """Record every entry under ``folder``.
 
-    Links and junctions are recorded and not followed. ``dups`` is recorded and
+    Links and junctions are recorded and not followed. ``_dups`` is recorded and
     not entered. Hidden, system-name, extension, and empty rules are not applied.
     """
     folder = validate_folder(folder)

@@ -29,7 +29,7 @@ def test_unrelated_names_with_the_same_bytes_do_not_move(tmp_path):
     with pytest.raises(ValueError):
         move_duplicates(analysis, list(group.candidates))
 
-    assert not (tmp_path / "dups").exists()
+    assert not (tmp_path / "_dups").exists()
 
 
 def test_extension_must_match_ignoring_case(tmp_path):
@@ -68,10 +68,10 @@ def test_chosen_keeper_moves_only_the_selected_files(tmp_path):
         ContentMove(group.group_id, keeper, (by_name["Move.jpg"],)),
     ))
 
-    assert (tmp_path / "dups" / "02_Content" / "Move.jpg").read_bytes() == SAME
+    assert (tmp_path / "_dups" / "02_Content" / "Move.jpg").read_bytes() == SAME
     assert (tmp_path / "Keep.jpg").is_file()
     assert (tmp_path / "Stay.jpg").is_file()
-    assert not (tmp_path / "dups" / "01_Name").exists()
+    assert not (tmp_path / "_dups" / "01_Name").exists()
     assert report.moved_count == 1
 
 
@@ -87,14 +87,14 @@ def test_name_original_cannot_be_planned_and_name_copy_still_moves(tmp_path):
         move_duplicates(analysis, [], content=(
             ContentMove(content.group_id, by_name["Vacation.jpg"].entry, (by_name["Photo.jpg"],)),
         ))
-    assert not (tmp_path / "dups" / "02_Content").exists()
+    assert not (tmp_path / "_dups" / "02_Content").exists()
 
     name_copy = next(
         candidate for group in analysis.groups if group.kind is GroupKind.NAME for candidate in group.confirmed
     )
     move_duplicates(analysis, [name_copy])
-    assert (tmp_path / "dups" / "01_Name" / "Photo (1).jpg").read_bytes() == SAME
-    assert not (tmp_path / "dups" / "02_Content").exists()
+    assert (tmp_path / "_dups" / "01_Name" / "Photo (1).jpg").read_bytes() == SAME
+    assert not (tmp_path / "_dups" / "02_Content").exists()
 
 
 def test_name_original_stays_when_a_newer_file_has_the_same_bytes(tmp_path):
@@ -121,8 +121,8 @@ def test_name_original_stays_when_a_newer_file_has_the_same_bytes(tmp_path):
     ))
 
     assert (tmp_path / "Photo.jpg").read_bytes() == SAME
-    assert (tmp_path / "dups" / "01_Name" / "Photo (1).jpg").read_bytes() == SAME
-    assert (tmp_path / "dups" / "02_Content" / "Vacation.jpg").read_bytes() == SAME
+    assert (tmp_path / "_dups" / "01_Name" / "Photo (1).jpg").read_bytes() == SAME
+    assert (tmp_path / "_dups" / "02_Content" / "Vacation.jpg").read_bytes() == SAME
 
 
 def test_match_flags_skip_each_kind_of_group(tmp_path):

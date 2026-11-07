@@ -60,12 +60,12 @@ def _is_directory(path: Path) -> bool:
 
 
 def snapshot(folder: Path) -> tuple[Item, ...]:
-    """Files in the source folder, loose files in ``dups``, and files in the destination subfolders.
+    """Files in the source folder, loose files in ``_dups``, and files in the destination subfolders.
 
     The operation log is not part of the data.
     """
     items = _files(folder, "source")
-    dups = folder / "dups"
+    dups = folder / "_dups"
     if _is_directory(dups):
         items.extend(_files(dups, "dups"))
         for name in ("01_Name", "02_Content"):
@@ -215,26 +215,26 @@ def test_exact_copies_only(tmp_path, files, expected):
 def test_existing_dups_folder_keeps_its_files(tmp_path):
     folder = tmp_path / "library"
     build_folder(folder, {"Photo.jpg": SAME, "Photo (1).jpg": SAME})
-    build_folder(folder / "dups", {"keep.txt": b"keep-me"})
+    build_folder(folder / "_dups", {"keep.txt": b"keep-me"})
 
     _analysis, report = exercise(folder, tmp_path)
 
     assert moved_names(report) == {"Photo (1).jpg"}
-    assert (folder / "dups" / "keep.txt").read_bytes() == b"keep-me"
-    assert (folder / "dups" / "01_Name" / "Photo (1).jpg").read_bytes() == SAME
+    assert (folder / "_dups" / "keep.txt").read_bytes() == b"keep-me"
+    assert (folder / "_dups" / "01_Name" / "Photo (1).jpg").read_bytes() == SAME
 
 
 def test_name_already_in_dups_is_left_alone(tmp_path):
     folder = tmp_path / "library"
     build_folder(folder, {"Photo.jpg": SAME, "Photo (1).jpg": SAME})
-    build_folder(folder / "dups" / "01_Name", {"Photo (1).jpg": b"already-there"})
+    build_folder(folder / "_dups" / "01_Name", {"Photo (1).jpg": b"already-there"})
 
     _analysis, report = exercise(folder, tmp_path)
 
     assert report is not None
     assert outcomes(report) == {"Photo (1).jpg": MoveOutcome.SKIPPED_EXISTS}
     assert (folder / "Photo (1).jpg").read_bytes() == SAME
-    assert (folder / "dups" / "01_Name" / "Photo (1).jpg").read_bytes() == b"already-there"
+    assert (folder / "_dups" / "01_Name" / "Photo (1).jpg").read_bytes() == b"already-there"
 
 
 def test_locked_copy_is_reported_and_the_run_continues(tmp_path):
@@ -246,7 +246,7 @@ def test_locked_copy_is_reported_and_the_run_continues(tmp_path):
     assert report is not None
     assert outcomes(report) == {"Photo (1).jpg": MoveOutcome.ERROR, "Photo (2).jpg": MoveOutcome.MOVED}
     assert (folder / "Photo (1).jpg").read_bytes() == SAME
-    assert (folder / "dups" / "01_Name" / "Photo (2).jpg").read_bytes() == SAME
+    assert (folder / "_dups" / "01_Name" / "Photo (2).jpg").read_bytes() == SAME
 
 
 def test_ignored_files_stay_put(tmp_path):
@@ -315,13 +315,13 @@ def test_cancel_mid_move_leaves_the_rest(tmp_path):
 
 def test_dups_as_a_file_moves_nothing(tmp_path):
     folder = tmp_path / "library"
-    build_folder(folder, {"Photo.jpg": SAME, "Photo (1).jpg": SAME, "dups": b"not-a-folder"})
+    build_folder(folder, {"Photo.jpg": SAME, "Photo (1).jpg": SAME, "_dups": b"not-a-folder"})
 
     _analysis, report = exercise(folder, tmp_path, expect_destination_error=True)
 
     assert report is None
-    assert not (folder / "dups" / "_logs").exists()
-    assert (folder / "dups").is_file()
+    assert not (folder / "_dups" / "_logs").exists()
+    assert (folder / "_dups").is_file()
     assert (folder / "Photo.jpg").read_bytes() == SAME
     assert (folder / "Photo (1).jpg").read_bytes() == SAME
 
@@ -339,7 +339,7 @@ def test_long_path_loses_nothing(tmp_path):
     copy = folder / "Photo (1).jpg"
     if moved_names(report):
         assert moved_names(report) == {"Photo (1).jpg"}
-        assert os.path.exists(to_os_path(folder / "dups" / "01_Name" / "Photo (1).jpg"))
+        assert os.path.exists(to_os_path(folder / "_dups" / "01_Name" / "Photo (1).jpg"))
     else:
         assert outcomes(report) == {"Photo (1).jpg": MoveOutcome.ERROR}
         assert os.path.exists(to_os_path(copy))
@@ -359,7 +359,7 @@ def test_second_run_moves_nothing_new(tmp_path):
     assert second_report.results == ()
     assert second_report.log_path is None
     assert (folder / "Photo.jpg").read_bytes() == SAME
-    assert (folder / "dups" / "01_Name" / "Photo (1).jpg").read_bytes() == SAME
+    assert (folder / "_dups" / "01_Name" / "Photo (1).jpg").read_bytes() == SAME
 
 
 def test_nfc_and_nfd_originals_move_nothing(tmp_path):

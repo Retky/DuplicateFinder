@@ -179,7 +179,7 @@ def make_planned(folder: Path, status: CandidateStatus = CandidateStatus.CONFIRM
         group_id="g0001",
         original=make_entry(folder, "Foto.jpg"),
         candidate=candidate,
-        dest_path=dest if dest is not None else folder / "dups" / "Foto (1).jpg",
+        dest_path=dest if dest is not None else folder / "_dups" / "Foto (1).jpg",
     )
 
 
@@ -199,7 +199,7 @@ def test_planned_move_rejects_non_confirmed(tmp_path, status):
 
 def test_planned_move_rejects_rename(tmp_path):
     with pytest.raises(ValueError, match="never renamed"):
-        make_planned(tmp_path, dest=tmp_path / "dups" / "Foto (1) (2).jpg")
+        make_planned(tmp_path, dest=tmp_path / "_dups" / "Foto (1) (2).jpg")
 
 
 def test_planned_move_rejects_same_folder(tmp_path):
@@ -209,4 +209,4 @@ def test_planned_move_rejects_same_folder(tmp_path):
 
 def test_planned_move_rejects_relative_destination(tmp_path):
     with pytest.raises(ValueError):
-        make_planned(tmp_path, dest=Path("dups") / "Foto (1).jpg")
+        make_planned(tmp_path, dest=Path("_dups") / "Foto (1).jpg")

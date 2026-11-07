@@ -56,7 +56,7 @@ def test_recursive_files_on_groups_a_nested_copy_without_folder_matching(tmp_pat
     hidden = write(tmp_path / "FolderA" / "secret.jpg", PHOTO)
     add_attributes(hidden, HIDDEN)
     write(tmp_path / "FolderA" / "desktop.ini", b"ini")
-    write(tmp_path / "dups" / "photo.jpg", PHOTO)
+    write(tmp_path / "_dups" / "photo.jpg", PHOTO)
 
     result = analyze(tmp_path, match_nested_files=True, match_folders=False)
 
@@ -64,7 +64,7 @@ def test_recursive_files_on_groups_a_nested_copy_without_folder_matching(tmp_pat
     assert paths_of(result) == {first, second}
     assert all(entry.name != "secret.jpg" for entry in result.scan.entries)
     assert all(entry.name != "desktop.ini" for entry in result.scan.entries)
-    assert all("dups" not in entry.path.parts for entry in result.scan.entries)
+    assert all("_dups" not in entry.path.parts for entry in result.scan.entries)
 
 
 def test_both_options_keep_folder_rules_and_hash_a_shared_file_once(tmp_path, monkeypatch):
@@ -127,8 +127,8 @@ def test_nested_copies_move_under_their_relative_paths(tmp_path):
         group.group_id, by_path[keeper].entry, (by_path[first], by_path[second]),
     )])
 
-    assert (tmp_path / "dups" / "02_Content" / "FolderA" / "Album" / "photo.jpg").read_bytes() == PHOTO
-    assert (tmp_path / "dups" / "02_Content" / "FolderB" / "Other" / "photo.jpg").read_bytes() == PHOTO
+    assert (tmp_path / "_dups" / "02_Content" / "FolderA" / "Album" / "photo.jpg").read_bytes() == PHOTO
+    assert (tmp_path / "_dups" / "02_Content" / "FolderB" / "Other" / "photo.jpg").read_bytes() == PHOTO
     assert keeper.read_bytes() == PHOTO
     assert not first.exists()
     assert not second.exists()
@@ -144,8 +144,8 @@ def test_a_direct_child_still_moves_to_the_flat_name_folder(tmp_path):
         if candidate.entry.path == copy
     )])
 
-    assert report.results[0].move.dest_path == tmp_path / "dups" / "01_Name" / "Photo (1).jpg"
-    assert (tmp_path / "dups" / "01_Name" / "Photo (1).jpg").read_bytes() == PHOTO
+    assert report.results[0].move.dest_path == tmp_path / "_dups" / "01_Name" / "Photo (1).jpg"
+    assert (tmp_path / "_dups" / "01_Name" / "Photo (1).jpg").read_bytes() == PHOTO
 
 
 def test_a_file_inside_a_selected_folder_is_not_also_a_file_move(tmp_path):
@@ -167,9 +167,9 @@ def test_a_file_inside_a_selected_folder_is_not_also_a_file_move(tmp_path):
     moved = {result.move.candidate.entry.path for result in report.results}
     assert inside not in moved
     assert loose in moved
-    assert (tmp_path / "dups" / "02_Content" / "loose" / "photo.jpg").read_bytes() == PHOTO
-    assert (tmp_path / "dups" / "03_Folders" / "Album (1)" / "photo.jpg").read_bytes() == PHOTO
-    assert not (tmp_path / "dups" / "02_Content" / "Album (1)" / "photo.jpg").exists()
+    assert (tmp_path / "_dups" / "02_Content" / "loose" / "photo.jpg").read_bytes() == PHOTO
+    assert (tmp_path / "_dups" / "03_Folders" / "Album (1)" / "photo.jpg").read_bytes() == PHOTO
+    assert not (tmp_path / "_dups" / "02_Content" / "Album (1)" / "photo.jpg").exists()
 
 
 def test_a_read_error_is_not_cached(tmp_path, monkeypatch):

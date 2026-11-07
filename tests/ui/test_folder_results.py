@@ -96,7 +96,7 @@ def test_original_folder_has_no_tick_and_confirm_names_the_folder_destination(tm
         chosen = view.selected_folder_paths()
         text = confirm_text(tmp_path, [], set(), chosen)
         assert chosen == [tmp_path / "Album (1)"]
-        assert str(tmp_path / "dups" / "03_Folders") in text
+        assert str(tmp_path / "_dups" / "03_Folders") in text
         assert "01_Name" not in text
         assert "02_Content" not in text
     finally:

@@ -62,14 +62,14 @@ def test_moves_confirmed_copy_unchanged(tmp_path):
 
     report = move_duplicates(analysis, [candidate(analysis, "Photo (1).jpg")])
 
-    moved = tmp_path / "dups" / "01_Name" / "Photo (1).jpg"
+    moved = tmp_path / "_dups" / "01_Name" / "Photo (1).jpg"
     assert outcomes(report) == {"Photo (1).jpg": MOVED}
     assert report.moved_count == 1
     assert report.moved_bytes == len(data)
     assert moved.parent == report.dest_folder
-    assert report.log_path.parent == tmp_path / "dups" / "_logs"
-    assert not (tmp_path / "dups" / "02_Content").exists()
-    assert not (tmp_path / "dups" / "03_Visual_Candidates").exists()
+    assert report.log_path.parent == tmp_path / "_dups" / "_logs"
+    assert not (tmp_path / "_dups" / "02_Content").exists()
+    assert not (tmp_path / "_dups" / "03_Visual_Candidates").exists()
     assert digest(moved) == digest(original) == hashlib.sha256(data).hexdigest()
     assert moved.stat().st_mtime_ns == copied_mtime
     assert not copy.exists()
@@ -79,7 +79,7 @@ def test_moves_confirmed_copy_unchanged(tmp_path):
 def test_existing_dups_folder_is_reused(tmp_path):
     write(tmp_path / "Photo.jpg", b"same")
     write(tmp_path / "Photo (1).jpg", b"same")
-    old = write(tmp_path / "dups" / "old.jpg", b"keep-me")
+    old = write(tmp_path / "_dups" / "old.jpg", b"keep-me")
     old_mtime = old.stat().st_mtime_ns
     analysis = analyze(tmp_path)
 
@@ -94,15 +94,15 @@ def test_existing_dups_folder_is_reused(tmp_path):
 def test_dups_as_file_moves_nothing(tmp_path):
     write(tmp_path / "Photo.jpg", b"same")
     copy = write(tmp_path / "Photo (1).jpg", b"same")
-    write(tmp_path / "dups", b"not a folder")
+    write(tmp_path / "_dups", b"not a folder")
     analysis = analyze(tmp_path)
 
     with pytest.raises(DestinationError):
         move_duplicates(analysis, [candidate(analysis, "Photo (1).jpg")])
 
     assert copy.exists()
-    assert (tmp_path / "dups").read_bytes() == b"not a folder"
-    assert not (tmp_path / "dups" / "_logs").exists()
+    assert (tmp_path / "_dups").read_bytes() == b"not a folder"
+    assert not (tmp_path / "_dups" / "_logs").exists()
 
 
 def test_dups_as_junction_moves_nothing(tmp_path):
@@ -110,7 +110,7 @@ def test_dups_as_junction_moves_nothing(tmp_path):
     copy = write(tmp_path / "Photo (1).jpg", b"same")
     target = tmp_path / "elsewhere"
     target.mkdir()
-    make_junction(tmp_path / "dups", target)
+    make_junction(tmp_path / "_dups", target)
     analysis = analyze(tmp_path)
 
     with pytest.raises(DestinationError):
@@ -123,7 +123,7 @@ def test_dups_as_junction_moves_nothing(tmp_path):
 def test_existing_destination_name_is_not_overwritten(tmp_path):
     write(tmp_path / "Photo.jpg", b"same")
     source = write(tmp_path / "Photo (1).jpg", b"same")
-    blocking = write(tmp_path / "dups" / "01_Name" / "Photo (1).jpg", b"already here")
+    blocking = write(tmp_path / "_dups" / "01_Name" / "Photo (1).jpg", b"already here")
     analysis = analyze(tmp_path)
 
     report = move_duplicates(analysis, [candidate(analysis, "Photo (1).jpg")])
@@ -137,31 +137,31 @@ def test_existing_destination_name_is_not_overwritten(tmp_path):
 def test_file_left_in_dups_root_is_not_a_collision(tmp_path):
     write(tmp_path / "Photo.jpg", b"same")
     write(tmp_path / "Photo (1).jpg", b"same")
-    leftover = write(tmp_path / "dups" / "Photo (1).jpg", b"from-v1")
+    leftover = write(tmp_path / "_dups" / "Photo (1).jpg", b"from-v1")
     analysis = analyze(tmp_path)
 
     report = move_duplicates(analysis, [candidate(analysis, "Photo (1).jpg")])
 
     assert outcomes(report) == {"Photo (1).jpg": MOVED}
     assert leftover.read_bytes() == b"from-v1"
-    assert (tmp_path / "dups" / "01_Name" / "Photo (1).jpg").read_bytes() == b"same"
-    assert not (tmp_path / "dups" / "02_Content").exists()
-    assert not (tmp_path / "dups" / "03_Visual_Candidates").exists()
+    assert (tmp_path / "_dups" / "01_Name" / "Photo (1).jpg").read_bytes() == b"same"
+    assert not (tmp_path / "_dups" / "02_Content").exists()
+    assert not (tmp_path / "_dups" / "03_Visual_Candidates").exists()
     assert_log_consistent(report)
 
 
 def test_name_folder_as_file_moves_nothing(tmp_path):
     write(tmp_path / "Photo.jpg", b"same")
     copy = write(tmp_path / "Photo (1).jpg", b"same")
-    write(tmp_path / "dups" / "01_Name", b"not a folder")
+    write(tmp_path / "_dups" / "01_Name", b"not a folder")
     analysis = analyze(tmp_path)
 
     with pytest.raises(DestinationError):
         move_duplicates(analysis, [candidate(analysis, "Photo (1).jpg")])
 
     assert copy.exists()
-    assert (tmp_path / "dups" / "01_Name").read_bytes() == b"not a folder"
-    assert not (tmp_path / "dups" / "_logs").exists()
+    assert (tmp_path / "_dups" / "01_Name").read_bytes() == b"not a folder"
+    assert not (tmp_path / "_dups" / "_logs").exists()
 
 
 def test_copy_changed_after_analysis_stays(tmp_path):
@@ -217,7 +217,7 @@ def test_locked_copy_is_reported_and_the_next_one_moves(tmp_path):
 
     assert outcomes(report) == {"Photo (1).jpg": ERROR, "Photo (2).jpg": MOVED}
     assert locked.exists()
-    assert (tmp_path / "dups" / "01_Name" / "Photo (2).jpg").exists()
+    assert (tmp_path / "_dups" / "01_Name" / "Photo (2).jpg").exists()
     assert report.results[0].detail
     assert_log_consistent(report)
 
@@ -241,7 +241,7 @@ def test_read_only_copy_moves_and_keeps_the_attribute(tmp_path):
     copy = write(tmp_path / "Photo (1).jpg", b"same")
     add_attributes(copy, stat.FILE_ATTRIBUTE_READONLY)
     analysis = analyze(tmp_path)
-    moved = tmp_path / "dups" / "01_Name" / "Photo (1).jpg"
+    moved = tmp_path / "_dups" / "01_Name" / "Photo (1).jpg"
     try:
         report = move_duplicates(analysis, [candidate(analysis, "Photo (1).jpg")])
         assert outcomes(report) == {"Photo (1).jpg": MOVED}
@@ -263,7 +263,7 @@ def test_unconfirmed_candidate_moves_nothing(tmp_path):
     with pytest.raises(ValueError):
         move_duplicates(analysis, [rejected])
 
-    assert not (tmp_path / "dups").exists()
+    assert not (tmp_path / "_dups").exists()
     assert (tmp_path / "Photo (1).jpg").exists()
 
 
@@ -278,7 +278,7 @@ def test_candidate_from_another_folder_is_rejected(tmp_path):
     with pytest.raises(ValueError):
         move_duplicates(analysis, [candidate(analyze(other), "Photo (1).jpg")])
 
-    assert not (tmp_path / "dups").exists()
+    assert not (tmp_path / "_dups").exists()
 
 
 def test_duplicate_selection_is_rejected(tmp_path):
@@ -290,7 +290,7 @@ def test_duplicate_selection_is_rejected(tmp_path):
     with pytest.raises(ValueError):
         move_duplicates(analysis, [selected, selected])
 
-    assert not (tmp_path / "dups").exists()
+    assert not (tmp_path / "_dups").exists()
 
 
 def test_only_the_selected_copy_moves(tmp_path):
@@ -303,7 +303,7 @@ def test_only_the_selected_copy_moves(tmp_path):
 
     assert outcomes(report) == {"Photo (1).jpg": MOVED}
     assert kept.exists()
-    assert not (tmp_path / "dups" / "01_Name" / "Photo (2).jpg").exists()
+    assert not (tmp_path / "_dups" / "01_Name" / "Photo (2).jpg").exists()
 
 
 def test_empty_selection_creates_nothing(tmp_path):
@@ -359,9 +359,9 @@ def test_unexpected_error_keeps_the_log_consistent(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="boom"):
         move_duplicates(analysis, selected)
 
-    assert (tmp_path / "dups" / "01_Name" / "Photo (1).jpg").exists()
+    assert (tmp_path / "_dups" / "01_Name" / "Photo (1).jpg").exists()
     assert (tmp_path / "Photo (2).jpg").exists()
-    log = next((tmp_path / "dups" / "_logs").glob("*.jsonl"))
+    log = next((tmp_path / "_dups" / "_logs").glob("*.jsonl"))
     events = read_log(log)
     results = [event for event in events if event["event"] == "result"]
     assert [event["outcome"] for event in results] == ["moved", "error"]
@@ -382,7 +382,7 @@ def test_long_path_move(tmp_path):
     report = move_duplicates(analysis, [candidate(analysis, "Photo (1).jpg")])
 
     assert outcomes(report) == {"Photo (1).jpg": MOVED}
-    assert os.path.exists(to_os_path(folder / "dups" / "01_Name" / "Photo (1).jpg"))
+    assert os.path.exists(to_os_path(folder / "_dups" / "01_Name" / "Photo (1).jpg"))
     assert_log_consistent(report)
 
 
@@ -395,4 +395,4 @@ def test_second_analysis_finds_nothing_left_to_move(tmp_path):
     again = analyze(tmp_path)
 
     assert again.confirmed_count == 0
-    assert {item.name: item.reason for item in again.scan.skipped}["dups"] is SkipReason.DIRECTORY
+    assert {item.name: item.reason for item in again.scan.skipped}["_dups"] is SkipReason.DIRECTORY

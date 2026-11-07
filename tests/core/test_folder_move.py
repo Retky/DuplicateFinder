@@ -58,8 +58,8 @@ def test_selected_duplicate_folder_moves_intact(tmp_path):
     assert not duplicate.exists()
     assert (tmp_path / "Album" / "Photo.jpg").read_bytes() == PHOTO
     assert (tmp_path / "Album" / "notes" / "read.txt").read_bytes() == NOTE
-    assert not (tmp_path / "dups" / "01_Name").exists()
-    assert not (tmp_path / "dups" / "02_Content").exists()
+    assert not (tmp_path / "_dups" / "01_Name").exists()
+    assert not (tmp_path / "_dups" / "02_Content").exists()
     assert (tmp_path / "Album" / OTHER_NAMES_FILE).read_text(encoding="utf-8") == "Album (1)\n"
 
     events = read_log(report.log_path)
@@ -105,9 +105,9 @@ def test_a_file_inside_the_selected_folder_is_not_moved_again(tmp_path):
 
     assert [result.move.candidate.entry.path for result in report.results] == [kept]
     assert report.results[0].outcome is MoveOutcome.MOVED
-    assert (tmp_path / "dups" / "01_Name" / "Photo (1).jpg").read_bytes() == COPY
+    assert (tmp_path / "_dups" / "01_Name" / "Photo (1).jpg").read_bytes() == COPY
     assert (folder_destination(tmp_path) / "Album (1)" / "Photo (1).jpg").read_bytes() == PHOTO
-    assert not (tmp_path / "dups" / "02_Content").exists()
+    assert not (tmp_path / "_dups" / "02_Content").exists()
     assert (tmp_path / "Album" / "Photo.jpg").is_file()
 
 
@@ -123,9 +123,9 @@ def test_a_file_inside_the_original_folder_can_still_move(tmp_path):
     file_analysis = analyze(original)
     report = move_duplicates(file_analysis, [candidate(file_analysis, "Photo (1).jpg")])
 
-    assert (original / "dups" / "01_Name" / "Photo (1).jpg").read_bytes() == PHOTO
+    assert (original / "_dups" / "01_Name" / "Photo (1).jpg").read_bytes() == PHOTO
     assert (original / "Photo.jpg").is_file()
-    assert not (original / "dups" / "03_Folders").exists()
+    assert not (original / "_dups" / "03_Folders").exists()
     assert (folder_destination(tmp_path) / "Album (1)" / "Photo (1).jpg").is_file()
     assert report.moved_count == 1
     assert report.folder_results == ()
@@ -137,7 +137,7 @@ def test_a_file_only_move_does_not_create_the_folder_destination(tmp_path):
     write(names / "Photo (1).jpg", PHOTO)
     analysis = analyze(names)
     move_duplicates(analysis, [candidate(analysis, "Photo (1).jpg")])
-    assert (names / "dups" / "01_Name" / "Photo (1).jpg").is_file()
+    assert (names / "_dups" / "01_Name" / "Photo (1).jpg").is_file()
     assert not folder_destination(names).exists()
 
     content = tmp_path / "content"
@@ -149,7 +149,7 @@ def test_a_file_only_move_does_not_create_the_folder_destination(tmp_path):
     move_duplicates(analysis, [], content=(
         ContentMove(group.group_id, by_name["Photo.jpg"].entry, (by_name["Vacation.jpg"],)),
     ))
-    assert (content / "dups" / "02_Content" / "Vacation.jpg").is_file()
+    assert (content / "_dups" / "02_Content" / "Vacation.jpg").is_file()
     assert not folder_destination(content).exists()
 
 
@@ -162,11 +162,11 @@ def test_selecting_the_original_or_the_same_folder_twice_creates_nothing(tmp_pat
 
     with pytest.raises(ValueError):
         move_duplicates(analysis, [], folders=[original], folder_groups=groups)
-    assert not (tmp_path / "dups").exists()
+    assert not (tmp_path / "_dups").exists()
 
     with pytest.raises(ValueError):
         move_duplicates(analysis, [], folders=[duplicate, duplicate], folder_groups=groups)
-    assert not (tmp_path / "dups").exists()
+    assert not (tmp_path / "_dups").exists()
 
 
 def albums(folder):

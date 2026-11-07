@@ -66,14 +66,17 @@ def test_empty_candidate_is_recorded(tmp_path):
 
 
 def test_dups_and_junctions_are_not_entered(tmp_path):
-    write(tmp_path / "dups" / "01_Name" / "photo.jpg", b"photo")
-    target = tmp_path / "dups" / "target"
-    write(target / "photo.jpg", b"photo")
+    write(tmp_path / "_dups" / "01_Name" / "photo.jpg", b"moved")
+    target = tmp_path / "_dups" / "target"
+    write(target / "photo.jpg", b"moved")
     make_junction(tmp_path / "linked", target)
-    write(tmp_path / "album" / "dups" / "secret.jpg", b"secret")
+    write(tmp_path / "album" / "_dups" / "secret.jpg", b"secret")
     write(tmp_path / "album" / "photo.jpg", b"photo")
+    write(tmp_path / "dups" / "photo.jpg", b"kept")
 
     trees = scan_folder_trees(tmp_path, match_subfolders=True)
 
-    assert {tree.path.name for tree in trees} == {"album"}
-    assert names(trees[0]) == {("photo.jpg",)}
+    by_name = {tree.path.name: tree for tree in trees}
+    assert set(by_name) == {"album", "dups"}
+    assert names(by_name["album"]) == {("photo.jpg",)}
+    assert names(by_name["dups"]) == {("photo.jpg",)}

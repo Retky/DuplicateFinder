@@ -10,6 +10,7 @@ from pathlib import Path
 
 from duplicate_finder.core.analysis import AnalysisResult
 from duplicate_finder.core.folder_groups import FolderGroup
+from duplicate_finder.core.folder_scan import DUPS_NAME
 from duplicate_finder.core.models import (
     Candidate,
     DuplicateGroup,
@@ -24,7 +25,7 @@ from duplicate_finder.core.operation_logger import OperationLogger
 from duplicate_finder.core.scanner import validate_folder
 from duplicate_finder.core.winpath import to_os_path
 
-DEST_FOLDER_NAME = "dups"
+DEST_FOLDER_NAME = DUPS_NAME
 NAME_FOLDER_NAME = "01_Name"
 CONTENT_FOLDER_NAME = "02_Content"
 FOLDER_FOLDER_NAME = "03_Folders"
