@@ -40,4 +40,11 @@ if ($embedded -notmatch "longPathAware") {
     throw "The embedded manifest is missing longPathAware"
 }
 
+$zip = Join-Path $PSScriptRoot "dist\DuplicateFinder-$expected-windows.zip"
+if (Test-Path -LiteralPath $zip) {
+    Remove-Item -LiteralPath $zip -Force
+}
+Compress-Archive -Path $dist -DestinationPath $zip
+
 Write-Host "Built $exe ($fileVersion)"
+Write-Host "Packed $zip"

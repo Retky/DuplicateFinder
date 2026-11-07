@@ -45,7 +45,7 @@ From the project folder:
 .\build.ps1
 ```
 
-The script runs the tests, then writes `dist\DuplicateFinder\DuplicateFinder.exe`. That folder is the application: it does not need Python installed and it does not use the network. The executable opens the window and has no console. Double-click it, choose a folder, analyze it, review the ticked copies, and move the ones you leave selected into `_dups/01_Name`. The dry run below still uses Python.
+The script runs the tests, then writes `dist\DuplicateFinder\DuplicateFinder.exe` and `dist\DuplicateFinder-<version>-windows.zip`. The zip contains that whole folder. It does not need Python installed and it does not use the network. The same zip is attached to the GitHub release. Unzip it and double-click `DuplicateFinder.exe`, choose a folder, analyze it, review the ticked copies, and move the ones you leave selected into `_dups/01_Name`. The dry run below still uses Python.
 
 The build is not code-signed. Windows SmartScreen may warn that the publisher is unknown. Code signing is out of scope for v1.
 
