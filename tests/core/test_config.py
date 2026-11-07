@@ -141,3 +141,41 @@ def test_missing_appdata_raises(monkeypatch):
     monkeypatch.delenv("APPDATA", raising=False)
     with pytest.raises(RuntimeError, match="APPDATA"):
         default_config_dir()
+
+
+def test_old_config_leaves_folder_matching_off(tmp_path):
+    write_raw(tmp_path, json.dumps({"enabled_patterns": ["copy"], "last_folder": r"C:\Photos"}))
+    loaded = load_config(tmp_path)
+    assert loaded.match_folders is False
+    assert loaded.match_subfolders is False
+    assert loaded.match_nested_files is False
+    assert loaded.excluded_extensions == frozenset()
+
+
+def test_subfolders_stay_off_unless_folder_matching_is_on(tmp_path):
+    write_raw(tmp_path, json.dumps({"match_folders": False, "match_subfolders": True}))
+    assert load_config(tmp_path).match_subfolders is False
+
+    saved = Config(ALL_PATTERNS, None, match_folders=False, match_subfolders=True, excluded_extensions=frozenset({".db"}))
+    save_config(saved, tmp_path)
+    loaded = load_config(tmp_path)
+    assert loaded.match_subfolders is False
+    assert loaded.excluded_extensions == frozenset({".db"})
+
+
+def test_nested_file_matching_defaults_off_and_is_independent(tmp_path):
+    write_raw(tmp_path, json.dumps({"match_folders": False, "match_nested_files": True}))
+    loaded = load_config(tmp_path)
+    assert loaded.match_folders is False
+    assert loaded.match_nested_files is True
+
+    saved = Config(ALL_PATTERNS, None, match_nested_files=True)
+    save_config(saved, tmp_path)
+    assert load_config(tmp_path).match_nested_files is True
+
+
+def test_malformed_extension_is_dropped_on_load_and_rejected_on_save(tmp_path):
+    write_raw(tmp_path, json.dumps({"excluded_extensions": [".db", "not an extension", 5]}))
+    assert load_config(tmp_path).excluded_extensions == frozenset({".db"})
+    with pytest.raises(ValueError, match="not an extension"):
+        save_config(Config(ALL_PATTERNS, None, excluded_extensions=frozenset({"bad/ext"})), tmp_path)

@@ -1,3 +1,4 @@
+import stat
 import threading
 from pathlib import Path
 
@@ -5,8 +6,9 @@ import pytest
 
 from duplicate_finder.core.analysis import Phase, analyze
 from duplicate_finder.core.filename_parser import ALL_PATTERNS
-from duplicate_finder.core.models import CandidateStatus
+from duplicate_finder.core.models import CandidateStatus, GroupKind
 from duplicate_finder.core.scanner import FolderValidationError, ScanCancelled
+from tests.winhelpers import add_attributes, write
 
 
 def build_scenario(folder: Path) -> None:
@@ -59,10 +61,14 @@ def test_enabled_patterns_are_passed_through(tmp_path):
 
     result = analyze(tmp_path, enabled=ALL_PATTERNS - {"paren_num"})
 
-    names = set(statuses(result))
+    names = {candidate.entry.name for group in result.groups if group.kind is GroupKind.NAME
+             for candidate in group.candidates}
     assert "Photo (1).jpg" not in names
     assert "Lonely (1).png" not in names
     assert "Photo - copia.jpg" in names
+    content = {candidate.entry.name for group in result.groups if group.kind is GroupKind.CONTENT
+               for candidate in group.candidates}
+    assert "Photo (1).jpg" in content
     assert result.enabled == ALL_PATTERNS - {"paren_num"}
 
 
@@ -72,9 +78,10 @@ def test_progress_reports_both_phases(tmp_path):
 
     analyze(tmp_path, on_progress=lambda phase, done, total: calls[phase].append((done, total)))
 
-    for phase in Phase:
-        assert calls[phase], phase
-        done, total = calls[phase][-1]
+    assert set(calls) == {Phase.SCAN, Phase.VERIFY}
+    for phase, items in calls.items():
+        assert items, phase
+        done, total = items[-1]
         assert done == total
 
 
@@ -107,3 +114,48 @@ def test_pre_cancelled_scan_raises(tmp_path):
 def test_invalid_folder_raises(tmp_path):
     with pytest.raises(FolderValidationError):
         analyze(tmp_path / "missing")
+
+
+def test_folder_matching_stays_off_until_requested(tmp_path):
+    write(tmp_path / "Album" / "photo.jpg", b"photo")
+    write(tmp_path / "Album (1)" / "photo.jpg", b"photo")
+
+    off = analyze(tmp_path)
+    assert off.folder_groups == ()
+    assert off.folders_hidden is False
+
+    on = analyze(tmp_path, match_folders=True)
+    assert len(on.folder_groups) == 1
+    assert on.folder_groups[0].original.name == "Album"
+    assert [path.name for path in on.folder_groups[0].duplicates] == ["Album (1)"]
+    assert on.folders_hidden is False
+
+
+def test_folder_comparison_moves_progress_off_the_completed_scan(tmp_path):
+    write(tmp_path / "Album" / "photo.jpg", b"photo")
+    write(tmp_path / "Album (1)" / "photo.jpg", b"photo")
+    calls: list[tuple[int, int]] = []
+
+    analyze(
+        tmp_path,
+        match_folders=True,
+        on_progress=lambda phase, done, total: calls.append((done, total)) if phase is Phase.FOLDERS else None,
+    )
+
+    assert calls[0] == (0, 1)
+    assert calls[-1][0] == calls[-1][1]
+    assert any(done < total for done, total in calls)
+
+
+def test_hidden_folder_file_sets_the_warning_flag_and_desktop_ini_does_not(tmp_path):
+    write(tmp_path / "Album" / "photo.jpg", b"photo")
+    write(tmp_path / "Album" / "desktop.ini", b"ini")
+    write(tmp_path / "Album (1)" / "photo.jpg", b"photo")
+
+    metadata = analyze(tmp_path, match_folders=True)
+    assert metadata.folders_hidden is False
+
+    hidden = write(tmp_path / "Album" / "secret.jpg", b"secret")
+    add_attributes(hidden, stat.FILE_ATTRIBUTE_HIDDEN)
+    included = analyze(tmp_path, match_folders=True)
+    assert included.folders_hidden is True

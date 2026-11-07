@@ -6,6 +6,7 @@ hasher (T06) may confirm them.
 
 from collections import defaultdict
 from collections.abc import Iterable
+from pathlib import Path
 
 from duplicate_finder.core.filename_parser import ALL_PATTERNS, parse_name
 from duplicate_finder.core.models import (
@@ -31,12 +32,21 @@ def _sort_key(entry: FileEntry) -> tuple[str, str]:
     return entry.name.casefold(), entry.name
 
 
-def build_groups(entries: Iterable[FileEntry], enabled: frozenset[str] = ALL_PATTERNS) -> list[DuplicateGroup]:
+def build_groups(
+    entries: Iterable[FileEntry],
+    enabled: frozenset[str] = ALL_PATTERNS,
+    root: Path | None = None,
+) -> list[DuplicateGroup]:
     entries = list(entries)
     if len({entry.path for entry in entries}) != len(entries):
         raise ValueError("entries contain duplicate paths")
-    if len({entry.path.parent for entry in entries}) > 1:
-        raise ValueError("entries must all come from the same folder")
+    if root is None:
+        if len({entry.path.parent for entry in entries}) > 1:
+            raise ValueError("entries must all come from the same folder")
+    else:
+        for entry in entries:
+            if entry.path == root or not entry.path.is_relative_to(root):
+                raise ValueError(f"entry is outside the analyzed folder: {entry.path}")
 
     buckets: dict[tuple[str, str], list[tuple[FileEntry, ParsedName]]] = defaultdict(list)
     for entry in entries:

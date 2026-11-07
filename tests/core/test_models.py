@@ -50,7 +50,7 @@ def make_group(folder: Path, candidates: tuple[Candidate, ...], original_sha256:
 
 @pytest.mark.parametrize("status", list(CandidateStatus))
 def test_is_movable_only_for_confirmed(tmp_path, status):
-    sha256 = HASH_A if status is CandidateStatus.CONFIRMED else None
+    sha256 = HASH_A if status in (CandidateStatus.CONFIRMED, CandidateStatus.CONTENT_MATCH) else None
     candidate = make_candidate(tmp_path, "Foto (1).jpg", status, sha256)
     assert is_movable(candidate) is (status is CandidateStatus.CONFIRMED)
 
@@ -173,13 +173,13 @@ def test_enums_serialize_as_plain_strings(tmp_path):
 
 def make_planned(folder: Path, status: CandidateStatus = CandidateStatus.CONFIRMED,
                  dest: Path | None = None) -> PlannedMove:
-    sha256 = HASH_A if status is CandidateStatus.CONFIRMED else None
+    sha256 = HASH_A if status in (CandidateStatus.CONFIRMED, CandidateStatus.CONTENT_MATCH) else None
     candidate = make_candidate(folder, "Foto (1).jpg", status, sha256)
     return PlannedMove(
         group_id="g0001",
         original=make_entry(folder, "Foto.jpg"),
         candidate=candidate,
-        dest_path=dest if dest is not None else folder / "dups" / "Foto (1).jpg",
+        dest_path=dest if dest is not None else folder / "_dups" / "Foto (1).jpg",
     )
 
 
@@ -188,7 +188,10 @@ def test_planned_move_accepts_confirmed_same_name(tmp_path):
     assert move.dest_path.name == move.candidate.entry.name
 
 
-@pytest.mark.parametrize("status", [s for s in CandidateStatus if s is not CandidateStatus.CONFIRMED])
+@pytest.mark.parametrize(
+    "status",
+    [s for s in CandidateStatus if s not in (CandidateStatus.CONFIRMED, CandidateStatus.CONTENT_MATCH)],
+)
 def test_planned_move_rejects_non_confirmed(tmp_path, status):
     with pytest.raises(ValueError):
         make_planned(tmp_path, status)
@@ -196,7 +199,7 @@ def test_planned_move_rejects_non_confirmed(tmp_path, status):
 
 def test_planned_move_rejects_rename(tmp_path):
     with pytest.raises(ValueError, match="never renamed"):
-        make_planned(tmp_path, dest=tmp_path / "dups" / "Foto (1) (2).jpg")
+        make_planned(tmp_path, dest=tmp_path / "_dups" / "Foto (1) (2).jpg")
 
 
 def test_planned_move_rejects_same_folder(tmp_path):
@@ -206,4 +209,4 @@ def test_planned_move_rejects_same_folder(tmp_path):
 
 def test_planned_move_rejects_relative_destination(tmp_path):
     with pytest.raises(ValueError):
-        make_planned(tmp_path, dest=Path("dups") / "Foto (1).jpg")
+        make_planned(tmp_path, dest=Path("_dups") / "Foto (1).jpg")

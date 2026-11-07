@@ -63,6 +63,14 @@ def test_classify(name, is_dir, attributes, size, expected):
     assert classify(name, is_dir, attributes, size) == expected
 
 
+def test_excluded_extension_is_not_a_file_candidate(tmp_path):
+    write(tmp_path / "Photo.jpg")
+    write(tmp_path / "cache.db", b"cache")
+    result = scan_folder(tmp_path, excluded_extensions=frozenset({".db"}))
+    assert [entry.name for entry in result.entries] == ["Photo.jpg"]
+    assert reasons(result)["cache.db"] is SkipReason.EXCLUDED_EXTENSION
+
+
 def test_only_top_level_files_returned(tmp_path):
     write(tmp_path / "a.jpg")
     write(tmp_path / "b.jpg")

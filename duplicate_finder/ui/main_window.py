@@ -50,7 +50,7 @@ class MainWindow(ttk.Frame):
         self.settings = SettingsPanel(self, config, self._mark_stale, config_directory)
         self.settings.pack(fill="x", pady=8)
 
-        self.progress = ttk.Progressbar(self, mode="determinate")
+        self.progress = ttk.Progressbar(self, mode="determinate", maximum=1000)
         self.progress.pack(fill="x")
         ttk.Label(self, textvariable=self.status_var).pack(anchor="w", pady=(2, 6))
 
@@ -58,7 +58,7 @@ class MainWindow(ttk.Frame):
         self.results.pack(fill="both", expand=True)
 
         ttk.Label(self, textvariable=self.summary_var).pack(anchor="w", pady=4)
-        self.move_button = ttk.Button(self, text="Move selected to dups", command=self.move, state="disabled")
+        self.move_button = ttk.Button(self, text="Move selected", command=self.move, state="disabled")
         self.move_button.pack(anchor="e")
 
         self.path_var.trace_add("write", lambda *_args: self._mark_stale())
@@ -91,17 +91,20 @@ class MainWindow(ttk.Frame):
         if self.analysis is None or self.stale:
             return
         selected = self.results.selected_candidates()
-        if not selected:
+        content = self.results.content_moves()
+        folders = self.results.selected_folder_paths()
+        if not selected and not content and not folders:
             return
         paths = {candidate.entry.path for candidate in selected}
+        paths.update(candidate.entry.path for move in content for candidate in move.selected)
         if not messagebox.askyesno(
             "Move duplicates",
-            confirm_text(self.analysis.folder, self.analysis.groups, paths),
+            confirm_text(self.analysis.folder, self.analysis.groups, paths, folders),
             default="no",
             parent=self.root,
         ):
             return
-        self._start("move", self.analysis, selected)
+        self._start("move", self.analysis, selected, content, folders)
 
     def cancel(self) -> None:
         if self.busy:
@@ -131,9 +134,9 @@ class MainWindow(ttk.Frame):
         """Show results directly. Used by the worker callback and by tests."""
         self.analysis = result
         self.stale = False
-        self.results.show(result.groups)
+        self.results.show(result.groups, result.folder_groups, result.folders_hidden, result.folder)
         self._update_summary()
-        if not result.groups:
+        if not result.groups and not result.folder_groups:
             self.status_var.set("No duplicate candidates found.")
         elif result.cancelled:
             self.status_var.set("Analysis cancelled. Unverified copies were not confirmed.")
@@ -144,8 +147,14 @@ class MainWindow(ttk.Frame):
         self.operation = operation
         self.busy = True
         self._apply_busy_state()
-        self.progress.configure(value=0, maximum=1)
+        self._show_progress(0, 1)
         enabled = self.settings.enabled()
+        match_names = self.settings.match_names()
+        match_content = self.settings.match_content()
+        excluded_extensions = self.settings.excluded_extensions()
+        match_folders = self.settings.match_folders()
+        match_subfolders = self.settings.match_subfolders()
+        match_nested_files = self.settings.match_nested_files()
 
         def task(cancel, report) -> object:
             if operation == "analyze":
@@ -155,16 +164,43 @@ class MainWindow(ttk.Frame):
                 def on_progress(phase, done, total):
                     report(Progress(analyze_progress_text(phase, done, total), done, total))
 
-                return analyze(folder, enabled, on_progress=on_progress, cancel=cancel)
+                return analyze(
+                    folder, enabled, on_progress=on_progress, cancel=cancel,
+                    match_names=match_names, match_content=match_content,
+                    excluded_extensions=excluded_extensions,
+                    match_folders=match_folders,
+                    match_subfolders=match_subfolders,
+                    match_nested_files=match_nested_files,
+                )
 
-            analysis, selected = args
+            analysis, selected, content, folders = args
+            assert isinstance(analysis, AnalysisResult)
+            assert isinstance(selected, list)
+            assert isinstance(content, list)
+            assert isinstance(folders, list)
 
             def on_move_progress(done, total):
                 report(Progress(move_progress_text(done, total), done, total))
 
-            return move_duplicates(analysis, selected, on_progress=on_move_progress, cancel=cancel)
+            return move_duplicates(
+                analysis, selected, on_progress=on_move_progress, cancel=cancel,
+                content=content, folders=folders, folder_groups=analysis.folder_groups,
+            )
 
         self.worker.start(task)
+
+    def _show_progress(self, done: int, total: int) -> None:
+        """Show ``done/total`` on a 0–1000 range so a finished bar does not stay full."""
+        total = total if total else 1
+        done = min(max(done, 0), total)
+        span = 1000
+        value = span if done >= total else (done * span) // total
+        current = int(float(self.progress["value"]))
+        maximum = int(float(self.progress["maximum"]))
+        if maximum != span or value < current:
+            self.progress.configure(value=0)
+            self.progress.configure(maximum=span)
+        self.progress.configure(value=value)
 
     def _poll(self) -> None:
         try:
@@ -175,8 +211,7 @@ class MainWindow(ttk.Frame):
         for message in self.worker.drain():
             if isinstance(message, Progress):
                 self.status_var.set(message.text)
-                maximum = message.total if message.total else 1
-                self.progress.configure(maximum=maximum, value=min(message.done, maximum))
+                self._show_progress(message.done, message.total)
             elif isinstance(message, Succeeded):
                 self._on_success(message.value)
             elif isinstance(message, Failed):
@@ -204,7 +239,7 @@ class MainWindow(ttk.Frame):
             self._update_move_button()
             self._show_move_report(value)
             if self.root.winfo_exists():
-                self.analyze()
+                self.status_var.set("Move finished. The list stays as it was until you analyze again.")
 
     def _on_failure(self, error: Exception) -> None:
         closing = self.close_after
@@ -260,7 +295,8 @@ class MainWindow(ttk.Frame):
                 len(self.analysis.groups),
                 self.analysis.confirmed_count,
                 self.analysis.groups,
-                self.results.selected,
+                self.results.move_paths(),
+                self.results.hidden_tick_count(),
             ))
         self._update_move_button()
 
@@ -278,6 +314,6 @@ class MainWindow(ttk.Frame):
             not self.busy
             and not self.stale
             and self.analysis is not None
-            and bool(self.results.selected_candidates())
+            and self.results.has_move_selection()
         )
         self.move_button.configure(state="normal" if ready else "disabled")

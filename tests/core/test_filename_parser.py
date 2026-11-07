@@ -10,7 +10,8 @@ from duplicate_finder.core.filename_parser import (
 )
 
 D02_PATTERN_IDS = {
-    "paren_num", "paren_num_nospace", "bracket_num", "dash_num", "spaced_dash_num",
+    "paren_num", "paren_num_nospace", "paren_num_open", "bracket_num", "bracket_num_open",
+    "dash_num", "spaced_dash_num",
     "copy", "dash_copy", "paren_copy", "paren_copia", "dash_copia",
 }
 
@@ -24,7 +25,11 @@ CORPUS = [
     ("Photo (01).jpg", "Photo (01)", False),
     ("Batman (1989).cbz", "Batman (1989)", False),
     ("Photo(1).jpg", "Photo", True),
+    ("Photo(1.jpg", "Photo", True),
+    ("Photo(99.jpg", "Photo", True),
     ("Photo [1].jpg", "Photo", True),
+    ("Photo[1.jpg", "Photo", True),
+    ("Photo[99.jpg", "Photo", True),
     ("Photo-1.jpg", "Photo", True),
     ("Photo -1.jpg", "Photo -1", False),
     ("Photo - 1.jpg", "Photo", True),
@@ -69,6 +74,13 @@ def test_only_last_extension_counts():
     parsed = parse_name("archive (1).tar.gz")
     assert parsed.stem == "archive (1).tar"
     assert parsed.ext == ".gz"
+
+
+def test_closed_number_wins_over_the_half_mark():
+    assert parse_name("Photo(1).jpg").suffixes == ("paren_num_nospace",)
+    assert parse_name("Photo [1].jpg").suffixes == ("bracket_num",)
+    assert parse_name("Photo(1.jpg").suffixes == ("paren_num_open",)
+    assert parse_name("Photo[1.jpg").suffixes == ("bracket_num_open",)
 
 
 def test_specific_dash_copy_wins_over_plain_copy():

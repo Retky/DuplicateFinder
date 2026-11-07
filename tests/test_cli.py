@@ -54,7 +54,7 @@ def test_dry_run_never_modifies_folder(folder, capsys):
     main(["--dry-run", "--show-skipped", str(folder)])
 
     assert snapshot(folder) == before
-    assert not (folder / "dups").exists()
+    assert not (folder / "_dups").exists()
 
 
 def test_show_skipped(folder, capsys):
@@ -132,4 +132,4 @@ def test_subprocess_with_unicode_names(tmp_path):
     assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
     out = result.stdout.decode("utf-8")
     assert "[move] photo 📷 (1).jpg" in out
-    assert not (tmp_path / "dups").exists()
+    assert not (tmp_path / "_dups").exists()

@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from duplicate_finder.core.analysis import Phase
-from duplicate_finder.core.file_mover import MoveReport
+from duplicate_finder.core.file_mover import MoveReport, NameRecord
 from duplicate_finder.core.models import (
     Candidate,
     CandidateStatus,
@@ -20,6 +20,7 @@ from duplicate_finder.ui.presenters import (
     analyze_progress_text,
     can_toggle,
     confirm_text,
+    display_name,
     group_title,
     move_progress_text,
     move_report_text,
@@ -46,7 +47,7 @@ def parsed(name: str, suffixes: tuple[str, ...] = ()) -> ParsedName:
 
 def candidate(name: str, status: CandidateStatus, size: int = 100, sha: str | None = None,
               error: str | None = None) -> Candidate:
-    if status is CandidateStatus.CONFIRMED and sha is None:
+    if status in (CandidateStatus.CONFIRMED, CandidateStatus.CONTENT_MATCH) and sha is None:
         sha = HASH_A
     return Candidate(entry(name, size), parsed(name, ("paren_num",)), status, sha, error)
 
@@ -114,7 +115,7 @@ def test_confirm_text_names_the_destination():
     text = confirm_text(FOLDER, [group], {group.candidates[0].entry.path})
     assert "1 file(s) from 1 group(s)" in text
     assert "100 B" in text
-    assert str(FOLDER / "dups") in text
+    assert str(FOLDER / "_dups" / "01_Name") in text
 
 
 def test_group_titles():
@@ -129,22 +130,55 @@ def test_group_titles():
     ambiguous_group = DuplicateGroup("g0003", ("photo", ".jpg"), None, None, (ambiguous,))
     assert group_title(ambiguous_group) == "[g0003] Photo.jpg (ambiguous original)"
 
+    nested = FileEntry(FOLDER / "Album" / "Photo.jpg", "Photo.jpg", 100, 1)
+    nested_group = DuplicateGroup("g0004", ("photo", ".jpg"), nested, HASH_A, (candidate("Photo (1).jpg", CandidateStatus.CONFIRMED),))
+    relative = str(Path("Album") / "Photo.jpg")
+    assert display_name(nested.path, FOLDER) == relative
+    assert display_name(FOLDER / "Photo.jpg", FOLDER) == "Photo.jpg"
+    assert group_title(nested_group, FOLDER) == f"[g0004] {relative} (100 B)"
+
 
 def test_move_report_lists_every_outcome(tmp_path):
     group = confirmed_group()
-    move = PlannedMove("g0001", group.original, group.candidates[0], tmp_path / "dups" / "Photo (1).jpg")
+    move = PlannedMove("g0001", group.original, group.candidates[0], tmp_path / "_dups" / "Photo (1).jpg")
     from duplicate_finder.core.file_mover import MoveResult
 
-    report = MoveReport(tmp_path / "dups", tmp_path / "dups" / "_logs" / "run.jsonl",
+    report = MoveReport(tmp_path / "_dups", tmp_path / "_dups" / "_logs" / "run.jsonl",
                         (MoveResult(move, MoveOutcome.MOVED, None),), False)
     text = move_report_text(report)
     assert "Moved: 1" in text
     assert "Errors: 0" in text
     assert "Cancelled: 0" in text
     assert str(report.log_path) in text
+    assert "Names recorded" not in text
+    assert "Not recorded" not in text
+
+
+def test_move_report_lists_recorded_names_per_kept_folder(tmp_path):
+    group = confirmed_group()
+    move = PlannedMove("g0001", group.original, group.candidates[0], tmp_path / "_dups" / "Photo (1).jpg")
+    from duplicate_finder.core.file_mover import MoveResult
+
+    album = tmp_path / "Album" / "other-names.txt"
+    other = tmp_path / "Set" / "other-names.txt"
+    report = MoveReport(
+        tmp_path / "_dups", tmp_path / "_dups" / "_logs" / "run.jsonl",
+        (MoveResult(move, MoveOutcome.MOVED, None),), False,
+        name_records=(
+            NameRecord(album.parent, album, "Album (1)"),
+            NameRecord(album.parent, album, "Album (2)"),
+            NameRecord(other.parent, other, "Set (1)", "Permission denied"),
+        ),
+    )
+    text = move_report_text(report)
+    assert "Moved: 1" in text
+    assert text.index(f"Names recorded in {album}:") < text.index("Album (1)") < text.index("Album (2)")
+    assert f"Names recorded in {other}:" not in text
+    assert "Not recorded: Set (1) — Permission denied" in text
 
 
 def test_progress_text():
     assert analyze_progress_text(Phase.SCAN, 2, 10) == "Scanning... 2 of 10"
     assert analyze_progress_text(Phase.VERIFY, 50, 200) == "Verifying... 25%"
+    assert analyze_progress_text(Phase.FOLDERS, 1, 4) == "Comparing folders... 1 of 4"
     assert move_progress_text(1, 4) == "Moving... 1 of 4"

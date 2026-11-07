@@ -1,6 +1,6 @@
 [project]
 name = "duplicate-finder"
-version = "1.0.0"
+version = "1.1.0"
 description = "Local tool to find and move duplicate files on Windows."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
